@@ -1,0 +1,6 @@
+diagrams/**/*.png
+diagrams/**/*.svg
+diagrams/**/*.jpeg
+diagrams/**/*.jpg
+
+.DS_STORE
