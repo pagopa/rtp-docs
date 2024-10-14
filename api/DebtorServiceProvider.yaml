@@ -1,0 +1,265 @@
+openapi: 3.0.1
+info:
+  title: PagoPA RTP for A S - OpenAPI 3.1
+  description: |-
+    This is a sample collection of API for RTP
+
+  termsOfService: http://swagger.io/terms/
+  contact:
+    email: cstar@pagopa.it
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  version: 1.0.11
+externalDocs:
+  description: Find out more about Swagger
+  url: http://swagger.io
+
+servers:
+- url: https://mil.pagopa.it/{basePath}
+  description: The production API server
+  variables:
+    basePath:
+      # open meaning there is the opportunity to use special base paths as assigned by the provider, default is `v2`
+      default: v1
+- url: https://uat.mil.pagopa.it/{basePath}
+  description: The UAT API server
+  variables:
+    basePath:
+      # open meaning there is the opportunity to use special base paths as assigned by the provider, default is `v2`
+      default: v1
+
+tags:
+  - name: DebtorActivation
+    description: Everything about RTP Activation Process from a Payer
+    externalDocs:
+      description: Find out more
+      url: https://docs.google.com/document/d/1lLwGMYXt5BsboobTw2f5E9N0k5W27FosE_awx0NndgA/edit?pli=1#heading=h.c56sp56o9no0
+
+paths:
+  /userActivation:
+    post:
+      tags:
+        - DebtorActivation
+      summary: Add a new user activation to the Service Provider
+      description: Add a new user to the store
+      operationId: addUser
+      requestBody:
+        description: Create a new user in the store
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserActivation'
+        required: true
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserActivation'
+        '400':
+          description: Invalid input
+      security:
+        - mil_auth:
+          - service_provider
+          - mil_papos_admin
+          
+  /userActivation/{userId}:
+    parameters: 
+          - name: userId
+            in: path
+            description: identifier of the Payer (P009)
+            required: true
+            schema:
+              type: string
+    delete:
+      tags:
+          - DebtorActivation
+      summary: delete an existing user activation
+      description: delete an existing user activation
+      operationId: deleteUser
+      
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserActivation'
+      security:
+        - mil_auth:
+            - service_provider
+            - mil_papos_admin
+    get:
+      tags:
+        - DebtorActivation
+      summary: Find user activation by ID
+      description: Returns a single user activation
+      operationId: getUserById
+      parameters:
+        - name: userId
+          in: path
+          description: Identifier of the Payer (P009)
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserActivation'
+        '400':
+          description: Invalid ID supplied
+        '404':
+          description: Pet not found
+      security:
+        - mil_auth:
+          - service_provider
+          - mil_papos_admin
+            
+
+components:
+  schemas:
+    Debtor:
+      type: object
+      properties:
+        typeOf:
+          type: string
+          description : Person Natural | Person legal
+        identificationCode:
+          type: string
+          description : Vat Code or fiscal Code 
+    
+    UserActivation:
+      type: object
+      properties:
+        id:
+          type: string
+          description:  Identifier of the Payer (P009)
+        identificationCode:
+          type: string
+          description: fiscal code , Identifier of the Payer given by Payee (B028)
+        name:
+          type: string
+          description: Name of the Payer (P001)
+        address:
+          type: string
+          description: P005 Address of the Payer (P005)
+        serviceProviderId:
+          type: string
+          description: Identifier of the Payer’s RTP Service Provider (N001)
+    
+    
+    Message:
+      type: object
+      properties:
+        messageId:
+          type: string
+          format: uuid
+          description: unique message Id (S002 - Payee’s end-to-end reference of the RTP
+        callbackUrl:
+          type: string
+          description: positive functional url
+        paymentInfoUrl:
+          type: string
+          description: S008 url, used by the debtor Spsrtp to show payment information
+        payment:
+          type: object 
+          properties: 
+            noticeNumber:
+              type: string
+              description: numero avviso
+            ecFiscalCode:
+              type: string
+              description: codice fiscale ente creditore
+        executionDateTime:
+          description: Request execution Date/Time, same as  Expiring Date/Time
+          type: string
+          format: date-time
+        amount:
+         type: integer
+         description : Amount of the RTP (cents)
+        payeeRef:
+          type: string
+          description : R133- Payee’s associated RTP transaction reference
+        serviceProviderId:
+          type: string
+          description: uniqui service provider id
+      required:
+        - payment
+        - executionDateTime
+        - amount
+        - serviceProviderId
+        
+
+    
+
+    PaymentNoticeInfo:
+      type: object
+      properties:
+        noticeNumber:
+          type: string
+          description: numero avviso
+        ecFiscalCode:
+          type: string
+          description: codice fiscale ente creditore
+        description:
+          type: string
+          description: descrizione dell'avviso di pagamento
+        due_date:
+          type: string
+          format: date
+    
+    PayeeFilter:
+      type: object
+      properties:
+        fiscalCode:
+          type: string
+          description : EC fiscal code
+          
+    Payee:
+      type: object 
+      properties: 
+        fiscalCode:
+          type: string
+          description : EC fiscal code
+        name:
+          type: string
+          description : name of the Payee
+    
+    EnrollDataModel:
+      type: object
+      properties:
+        payeeFiscalCode:
+          type: string
+          description: EC fiscal code
+        serviceProviderId:
+          type: string
+          description: unique service provider id, provided during onboarding
+          
+    EnrollDataModelResponse:
+      type: object
+      properties:
+        payee:
+          $ref: '#/components/schemas/Payee'
+        
+          
+          
+        
+      
+        
+
+  securitySchemes:
+    mil_auth:
+      description: A bearer token in the format of a JWS and conforms to the specifications included in RFC8725
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://mil-d-apim.azure-api.net/mil-auth/token
+          refreshUrl: https://mil-d-apim.azure-api.net/mil-auth/token
+          scopes:
+            service_provider: Represents Service Provider role
+            mil_papos_admin: Represents system administrator role
