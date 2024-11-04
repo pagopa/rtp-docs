@@ -8,15 +8,11 @@ participant "Database" as DB
 SPD -> GR: POST /activations
 
 activate GR
-GR -> DB: check if user has already\nbeen activated
 
-alt user not present
 GR -> DB: save
-GR --> SPD : 200 OK
+DB --> GR: saved user
 
-else user already present
-GR --> SPD : 409 Conflict
-end
+GR --> SPD : 200 OK
 
 deactivate GR
 
