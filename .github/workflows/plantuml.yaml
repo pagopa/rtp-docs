@@ -34,12 +34,8 @@ jobs:
           for file in $(find ./diagrams -type f -name "*.puml"); do
             java -jar plantuml.jar "$file" -tsvg
           done
-      - name: Commit and push changes
-        run: |
-          git config user.name "GitHub Workflow"
-          git config user.email "<>"
-          for file in $(find ./diagrams -type f -name "*.svg"); do
-            git add "$file"
-          done
-          git commit -m "PlantUML images updated"
-          git push origin ${{ github.ref_name }}
+      - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 #v9.1.4
+        with:
+          add: 'diagrams'
+          message: 'Diagrams commit'
+          
