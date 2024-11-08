@@ -114,7 +114,7 @@ paths:
         '400':
           description: Invalid ID supplied
         '404':
-          description: Pet not found
+          description: User not found
       security:
         - mil_auth:
           - service_provider
