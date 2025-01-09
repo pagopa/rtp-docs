@@ -18,15 +18,15 @@ DB --> GR: payer
 alt user activated
 GR --> SPC: 200 OK
 
-else user not activated
-GR --> SPC: 404 not found
-SPC --> UA: 422 unprocessable entity
-end
-
 SPC -> SPC: add activation data \nto EPC payload
 SPC -> SPD: POST /sepa-request-to-pay-requests
 SPD --> SPC: 2xx
 SPC --> UA: 201 created
+
+else user not activated
+GR --> SPC: 404 not found
+SPC --> UA: 422 unprocessable entity
+end
 
 deactivate SPC
 
