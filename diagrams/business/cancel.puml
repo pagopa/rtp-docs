@@ -1,0 +1,36 @@
+@startuml 
+title 
+Cancellazione di una richiesta di pagamento
+end title 
+
+legend top
+on onBoarding Process, a service provider shall declare pagoPA Channel that it will be used on payment
+
+endlegend 
+'Premessa: 
+Participant sp_ec as "Service Provicer Creditore"
+Participant sp_deb as "Service Provicer Debitore"
+
+
+alt
+    [-> sp_ec: payed (receipt) 
+    note over sp_ec: Payment Notice has been payed ,\n SP should evaluate if the payment has been made by the same PSP associated with SP Debtor 
+    sp_ec -> sp_ec : evaluate request
+    alt "receipt.agoPA Channel == false "
+    sp_ec -> sp_deb: SEPA Request for Cancellation (reason : PAID)
+    sp_deb --> sp_ec : Ok
+    else "receipt.pagoPA Channel == true"
+    sp_ec -> sp_ec : void
+    else "receipt==null"
+    end
+else 
+    note over sp_ec: Creditor should cancel an RTP for any reason
+    [-> sp_ec: cancel (reason) 
+    sp_ec -> sp_deb: SEPA Request for Cancellation (reason: [AC02,AM09,BE16,DRTP,DT01,MODT,TECH] )
+    sp_deb --> sp_ec : Ok
+else 
+    note over sp_ec : Creditor SP can initiate a Request for cancellation for technical reason
+     sp_ec -> sp_deb: SEPA Request for Cancellation (reason:[AC02,AM09,BE16,DRTP,FRAD,TECH])
+    sp_deb --> sp_ec : Ok
+end
+@enduml
