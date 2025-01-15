@@ -19,8 +19,10 @@ alt user activated
 GR --> SPC: 200 OK
 
 SPC -> SPC: add activation data \nto EPC payload
+SPC -> DB: save RTP in status CREATED
 SPC -> SPD: POST /sepa-request-to-pay-requests
 SPD --> SPC: 2xx
+SPC -> DB: save RTP in status SENT
 SPC --> UA: 201 created
 
 else user not activated
