@@ -4,26 +4,48 @@ skin rose
 participant "User Agent" as UA
 participant "Pagopa - SP Creditore" as SPC
 participant "Gestore Repository" as GR
-database "Database" as DB
-participant "SP Debitore" as SPD
+database "Payer" as Payer
+database "SRTP" as SRTP
+database "Service Registry" as SR
+participant "CBI" as SPD
 
 UA -> SPC: POST /rtps
 activate SPC
 
 
 SPC -> GR: GET /activations/payer
-GR -> DB: findByPayerId
-DB --> GR: payer
+GR -> Payer: findByPayerId
+Payer --> GR: payer and its Service Provider
 
 alt user activated
+GR -> SR: getRegistryData
+note left: Search key: ID Payer SP
+
+SR --> GR: Service Provider data
+note right: service_endpoint, oauth2
+
+alt Service Provider is CBI
 GR --> SPC: 200 OK
 
-SPC -> SPC: add activation data \nto EPC payload
-SPC -> DB: save RTP in status CREATED
-SPC -> SPD: POST /sepa-request-to-pay-requests
-SPD --> SPC: 2xx
-SPC -> DB: save RTP in status SENT
+SPC -> SPC: add activation data to EPC payload
+
+SPC -> SRTP: save RTP in status CREATED
+
+SPC <-> SPD: oAuth
+
+SPC -> SPD: POST /sepa-request-to-pay
+
+SPD --> SPC: 202 accepted
+SPC -> SRTP: save RTP in status SENT
 SPC --> UA: 201 created
+
+else Service Provider is not CBI
+GR --> SPC: 404 not found
+
+SPC --> UA: 201 created
+note right: Mocked during CBI integration
+
+end
 
 else user not activated
 GR --> SPC: 404 not found
