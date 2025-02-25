@@ -10,6 +10,7 @@ database "Service Registry" as SR
 participant "CBI" as SPD
 
 UA -> SPC: POST /rtps
+note left: access token
 activate SPC
 
 
@@ -31,9 +32,10 @@ SPC -> SPC: add activation data to EPC payload
 
 SPC -> SRTP: save RTP in status CREATED
 
-SPC <-> SPD: oAuth
+SPC <-> SPD: oAuth2
 
 SPC -> SPD: POST /sepa-request-to-pay
+note left: oAuth2
 
 SPD --> SPC: 202 accepted
 SPC -> SRTP: save RTP in status SENT
