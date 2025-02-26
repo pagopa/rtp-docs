@@ -1,0 +1,26 @@
+@startuml
+
+autonumber
+Participant pagopa as "PagoPA \n (Payee Service Provider)"
+Participant sp as "Debtor Service Provider"
+
+pagopa -> sp : a SRTP message
+note right : mTL with QWAC Certificate
+
+sp ->> sp : Authorize incoming IP
+
+sp ->> sp: Verify Certificate
+
+sp ->> sp : Match SerialNumber Certificate \n with Payee Service Provider role
+
+
+
+alt success 
+sp ->> sp: process incoming message
+sp -->> pagopa: reponse message
+else onError
+sp -->> pagopa : HTTP 401 status code
+
+end
+
+@enduml

@@ -1,0 +1,27 @@
+@startuml
+!pragma teoz true
+autonumber
+Participant pagopa as "PagoPA\n Service Registry"
+Participant sp as "Debtor \n Service Provider"
+
+loop each day 
+
+sp ->> pagopa : check Service Registry
+pagopa -->> sp : Service Registry thumbprint 
+
+opt 
+sp -> pagopa : GET Service Registry 
+{start} pagopa -->> sp : ServiceRegistry(jsonFile, thumbprint) 
+sp -> sp : save thumbprint 
+...
+
+sp -> sp : apply changes 
+note right : up to 2 days
+{end} sp -> pagopa : Service Registry Updated 
+{start} <-> {end} : 2 days
+end
+
+
+end 
+
+@enduml

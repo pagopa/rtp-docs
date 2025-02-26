@@ -1,0 +1,22 @@
+@startuml
+!pragma teoz true
+autonumber
+Participant sp as "Debtor \n Service Provider"
+Participant pagopa as "PagoPA\n Activation Registry"
+Participant sp_oth as "Other Service Provider"
+
+sp ->> pagopa : POST /activations
+pagopa -->> sp : 409 Conflict (Location) 
+note left : Header :\n Location:{activationId}
+
+sp -> pagopa : PATCH activations/{activationId}
+pagopa --> sp : 204 - OK 
+note right : Activation updated successfully
+
+note over pagopa : Debtor has a new Service Provider
+
+pagopa -> sp_oth : POST /takeover
+sp_oth -->> pagopa : 204 - OK
+note right : Takeover request processed successfully
+
+@enduml
