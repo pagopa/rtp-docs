@@ -13,36 +13,53 @@ UA -> SPC: POST /rtps
 note left: access token
 activate SPC
 
-
 SPC -> GR: GET /activations/payer
+activate GR
 GR -> Payer: findByPayerId
-Payer --> GR: payer and its Service Provider
-
+activate Payer
+Payer --> GR
+deactivate Payer
 alt user activated
-GR -> SR: getRegistryData
-note left: Search key: ID Payer SP
+GR --> SPC: payer and its Service Provider
+deactivate GR
 
+SPC -> GR: getRegistryData
+note left: Search key: ID Payer SP
+activate GR
+GR -> SR
+activate SR
 SR --> GR: Service Provider data
 note right: service_endpoint, oauth2
+deactivate SR
+GR --> SPC: Service Provider data
+deactivate GR
+
 
 alt Service Provider is CBI
-GR --> SPC: 200 OK
 
 SPC -> SPC: add activation data to EPC payload
 
 SPC -> SRTP: save RTP in status CREATED
+activate SRTP
+SRTP --> SPC: created
+deactivate SRTP
 
 SPC <-> SPD: oAuth2
+activate SPD
 
 SPC -> SPD: POST /sepa-request-to-pay
 note left: oAuth2
-
 SPD --> SPC: 202 accepted
+deactivate SPD
+
 SPC -> SRTP: save RTP in status SENT
+activate SRTP
+SRTP --> SPC: updated
+deactivate SRTP
+
 SPC --> UA: 201 created
 
 else Service Provider is not CBI
-GR --> SPC: 404 not found
 
 SPC --> UA: 201 created
 note right: Mocked during CBI integration
@@ -50,8 +67,12 @@ note right: Mocked during CBI integration
 end
 
 else user not activated
+
+activate GR
 GR --> SPC: 404 not found
+deactivate GR
 SPC --> UA: 422 unprocessable entity
+
 end
 
 deactivate SPC
