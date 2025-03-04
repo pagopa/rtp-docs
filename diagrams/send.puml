@@ -61,6 +61,11 @@ SPC --> UA: 201 created
 
 else Service Provider is not CBI
 
+SPC -> SRTP: save RTP in status SENT
+activate SRTP
+SRTP --> SPC: updated
+deactivate SRTP
+
 SPC --> UA: 201 created
 note right: Mocked during CBI integration
 
