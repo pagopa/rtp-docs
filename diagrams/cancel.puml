@@ -1,0 +1,38 @@
+@startuml
+title Cancel RTP Process
+
+actor Client
+participant "RTP API" as API
+participant "RTP Service" as Service
+database Database as DB
+
+Client -> API: POST /rtps/{rtpId}/cancel
+note right: With rtpId as path parameter
+
+activate API
+
+API -> Service: cancelRtp(rtpId)
+activate Service
+
+Service -> DB: findRtpById(rtpId)
+activate DB
+
+alt RTP exists
+    DB --> Service: return RTP
+    Service -> Service: setStatus("CANCELED")
+    Service -> DB: saveRtp(rtp)
+    DB --> Service: saveConfirmation
+    Service --> API: success
+    API --> Client: 204 No Content
+else RTP not found
+    DB --> Service: return null
+    Service --> API: rtpNotFound
+    API --> Client: 404 Not Found
+    note right: Error response as defined in the API spec
+end
+
+deactivate DB
+deactivate Service
+deactivate API
+
+@enduml
