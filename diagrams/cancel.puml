@@ -5,6 +5,7 @@ actor Client
 participant "RTP API" as API
 participant "RTP Service" as Service
 database Database as DB
+participant "SP Debtor API" as SPDAPI
 
 Client -> API: POST /rtps/{rtpId}/cancel
 note right: With rtpId as path parameter
@@ -19,11 +20,28 @@ activate DB
 
 alt RTP exists
     DB --> Service: return RTP
-    Service -> Service: setStatus("CANCELED")
-    Service -> DB: saveRtp(rtp)
-    DB --> Service: saveConfirmation
-    Service --> API: success
-    API --> Client: 204 No Content
+    
+    Service -> SPDAPI: POST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
+    note right: Send cancellation request to SP Debtor
+    activate SPDAPI
+    
+    alt SP Debtor accepts cancellation
+        SPDAPI --> Service: 201 Created (Cancellation accepted)
+        
+        Service -> Service: setStatus("CANCELED")
+        Service -> DB: saveRtp(rtp)
+        DB --> Service: saveConfirmation
+        Service --> API: success
+        API --> Client: 204 No Content
+    else SP Debtor rejects cancellation
+        SPDAPI --> Service: Error response
+        Service --> API: cancellationRejected
+        API --> Client: 400/422 Error
+        note right: Appropriate error based on SP Debtor response
+    end
+    
+    deactivate SPDAPI
+    
 else RTP not found
     DB --> Service: return null
     Service --> API: rtpNotFound
