@@ -1,0 +1,35 @@
+@startuml
+title SEPA Request-To-Pay - Callback Processing Flow
+
+participant "SP Debtor" as SPDAPI
+participant "RTP Service" as Service
+database "RTP Database" as DB
+
+== Callback Processing (Asynchronous Response) ==
+
+SPDAPI -> Service: POST to callbackUrl
+note left: AsynchronousSepaRequestToPayResponseResource
+activate Service
+
+Service -> Service: parseResponse()
+Service -> DB: findRtpByResourceId(resourceId)
+activate DB
+DB --> Service: return RTP
+
+alt Request Accepted
+    Service -> Service: setStatus("ACCEPTED")
+    Service -> DB: updateRtp(rtp)
+    DB --> Service: updateConfirmation
+    Service --> SPDAPI: 200 OK
+else Request Rejected
+    Service -> Service: setStatus("REJECTED")
+    Service -> Service: setRejectionReason(reason)
+    Service -> DB: updateRtp(rtp)
+    DB --> Service: updateConfirmation
+    Service --> SPDAPI: 200 OK
+end
+
+deactivate DB
+deactivate Service
+
+@enduml
