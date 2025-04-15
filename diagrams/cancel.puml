@@ -1,7 +1,7 @@
 @startuml
 title Cancel RTP Process
 
-actor SP Creditor as Creditor
+actor "SP Creditor" as Creditor
 participant "RTP API" as API
 participant "RTP Service" as Service
 database Database as DB
