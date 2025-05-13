@@ -32,13 +32,13 @@ jobs:
           for file in $(find ./diagrams -type f -name "*.puml"); do
             java -jar plantuml.jar "$file" -tsvg
           done
-      # Install draw.io CLI (drawio-desktop)
+          # Install draw.io CLI (drawio-desktop) with modified dependencies
       - name: Install draw.io CLI
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgbm1 libasound2
+          sudo apt-get install -y libgbm1 libasound2t64 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgtk-3-0 libgbm1 libnss3 libx11-xcb1 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libxcursor1 libxi6 libxtst6 libxss1
           wget https://github.com/jgraph/drawio-desktop/releases/download/v21.2.1/drawio-amd64-21.2.1.deb
-          sudo dpkg -i drawio-amd64-21.2.1.deb
+          sudo dpkg -i drawio-amd64-21.2.1.deb || sudo apt-get -f install -y
       
       # Generate images from draw.io files
       - name: Generate Draw.io Images
@@ -47,7 +47,7 @@ jobs:
             output_file="${file%.drawio}.png"
             drawio -x -f png -o "$output_file" "$file"
           done
-          
+
       - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 #v9.1.4
         with:
           add: 'diagrams'
