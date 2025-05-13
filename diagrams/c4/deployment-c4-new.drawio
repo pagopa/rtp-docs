@@ -62,7 +62,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="7Z0Y1B7eJfh8i2RKi7UW-25" value="&lt;div&gt;mil-auth&lt;/div&gt;" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=12;image=img/lib/azure2/other/Worker_Container_App.svg;" parent="1" vertex="1">
-          <mxGeometry x="520" y="150" width="61.82" height="60" as="geometry" />
+          <mxGeometry x="520" y="152.5" width="61.82" height="60" as="geometry" />
         </mxCell>
         <mxCell id="12" value="Blob Storage&lt;div&gt;&lt;br&gt;&lt;/div&gt;" style="sketch=0;aspect=fixed;html=1;points=[];align=center;image;fontSize=12;image=img/lib/mscae/BlobBlock.svg;" parent="1" vertex="1">
           <mxGeometry x="520" y="12.5" width="41.67" height="35" as="geometry" />
