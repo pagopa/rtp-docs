@@ -1,0 +1,19 @@
+@startuml
+
+skin rose
+participant "SP Debitore" as SPD
+participant "Gestore Repository" as GR
+participant "Database" as DB
+
+SPD -> GR: POST /activations
+
+activate GR
+
+GR -> DB: save
+DB --> GR: saved user
+
+GR --> SPD : 200 OK
+
+deactivate GR
+
+@enduml
