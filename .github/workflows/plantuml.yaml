@@ -37,6 +37,12 @@ jobs:
           for file in $(find ./diagrams -type f -name "*.puml"); do
             java -jar plantuml.jar "$file" -tsvg
           done
+      - name: Generate Drawio Images (C4)
+        uses: severgroup-tt/actions-drawio-cli@v1.0.0
+        with:
+          format: png
+          source: diagrams/c4
+          destination: diagrams/c4
       - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 #v9.1.4
         with:
           add: 'diagrams'
