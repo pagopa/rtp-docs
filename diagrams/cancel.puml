@@ -1,0 +1,56 @@
+@startuml
+title Cancel RTP Process
+
+actor "SP Creditor" as Creditor
+participant "RTP API" as API
+participant "RTP Service" as Service
+database Database as DB
+participant "SP Debtor API" as SPDAPI
+
+Creditor -> API: POST /rtps/{rtpId}/cancel
+note right: With rtpId as path parameter
+
+activate API
+
+API -> Service: cancelRtp(rtpId)
+activate Service
+
+Service -> DB: findRtpById(rtpId)
+activate DB
+
+alt RTP exists
+    DB --> Service: return RTP
+    
+    Service -> SPDAPI: POST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
+    note right: Send cancellation request to SP Debtor
+    activate SPDAPI
+    
+    alt SP Debtor accepts cancellation
+        SPDAPI --> Service: 201 Created (Cancellation accepted)
+        
+        Service -> Service: setStatus("CANCELED")
+        Service -> DB: saveRtp(rtp)
+        DB --> Service: saveConfirmation
+        Service --> API: success
+        API --> Creditor: 204 No Content
+    else SP Debtor rejects cancellation
+        SPDAPI --> Service: Error response
+        Service --> API: cancellationRejected
+        API --> Creditor: 400/422 Error
+        note right: Appropriate error based on SP Debtor response
+    end
+    
+    deactivate SPDAPI
+    
+else RTP not found
+    DB --> Service: return null
+    Service --> API: rtpNotFound
+    API --> Creditor: 404 Not Found
+    note right: Error response as defined in the API spec
+end
+
+deactivate DB
+deactivate Service
+deactivate API
+
+@enduml
