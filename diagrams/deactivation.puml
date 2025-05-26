@@ -3,85 +3,39 @@
 skin rose
 actor "SP Debitore" as SPD
 participant "Activation Service" as AS
-participant "Auth Service" as AUTH
-participant "Activation Repo" as AR
 database "Database" as DB
 
 SPD -> AS: DELETE /activations/{activationId}
 activate AS
 
-AS -> AR: findPayerById
-deactivate AS
-activate AR
-
-AR -> DB: findById
-deactivate AR
+AS -> DB: findById
 activate DB
 
 alt Activation not found
-    DB --> AR: empty
-    deactivate DB
-    activate AR
-
-    AR --> AS: empty
-    deactivate AR
-    activate AS
-
+    DB --> AS: empty
     AS --> SPD: 404 Not Found
-    deactivate AS
 
 else Activation found
-    activate DB
-    DB --> AR: ActivationEntity
+    DB --> AS: Payer
     deactivate DB
-    activate AR
-
-    AR --> AS: Payer
-    deactivate AR
-    activate AS
-
-    AS -> AUTH: verifySubjectRequest
-    deactivate AS
-    activate AUTH
 
     alt Access Denied
-        AUTH --> AS: throws AccessDeniedException
-        deactivate AUTH
-        activate AS
-
+        AS -> AS: verifySubjectRequest throws AccessDeniedException
         AS --> SPD: 404 Not Found
-        deactivate AS
 
     else Access Granted
-    activate AUTH
-        AUTH --> AS: verified
-        deactivate AUTH
-        activate AS
-
-        AS -> AR: deactivatePayer
-        deactivate AS
-        activate AR
-
-        AR -> AR: toDeletedDbEntity
-        AR -> DB: save
-        deactivate AR
+        AS -> AS: verifySubjectRequest is verified
+        AS -> DB: save deleted activation
         activate DB
 
-        DB --> AR: saved
+        DB --> AS: saved
         deactivate DB
-        activate AR
 
-        AR -> DB: deleteById
-        deactivate AR
+        AS -> DB: deleteById
         activate DB
 
-        DB -> AR: deleted
+        DB -> AS: deleted
         deactivate DB
-        activate AR
-
-        AR --> AS: deleted
-        deactivate AR
-        activate AS
 
         AS --> SPD: 204 No Content
         deactivate AS
