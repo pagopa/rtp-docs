@@ -21,11 +21,14 @@ else Activation found
 
     alt Access Denied
         AS -> AS: verifySubjectRequest throws AccessDeniedException
-        AS --> SPD: 404 Not Found
+        note right: Subject in token doesn't match Service Provider ID in Payer entity
 
     else Access Granted
         AS -> AS: verifySubjectRequest is verified
+        note right: Subject in token matches Service Provider ID in Payer entity
+
         AS -> DB: save deleted activation
+        note right: Moves activation record to a separate collection
         activate DB
 
         DB --> AS: saved
