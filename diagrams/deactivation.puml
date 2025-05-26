@@ -1,46 +1,41 @@
 @startuml
 
 skin rose
-actor "SP Debitore" as SPD
-participant "Activation Service" as AS
-database "Database" as DB
+actor "**SP Debitore**" as SPD
+participant "**Activation Service**" as AS
+database "**Cosmos DB**" as DB
 
-SPD -> AS: DELETE /activations/{activationId}
-activate AS
+SPD -> AS++: **DELETE** /activations/{activationId}
 
-AS -> DB: findById
+AS -> DB: find by ID
 activate DB
 
-alt Activation not found
+alt **Activation not found**
     DB --> AS: empty
-    AS --> SPD: 404 Not Found
+    AS --> SPD: **404 Not Found**
 
-else Activation found
+else **Activation found**
     DB --> AS: Payer
     deactivate DB
 
-    alt Access Denied
-        AS -> AS: verifySubjectRequest throws AccessDeniedException
+    alt **Access Denied**
+        AS -> AS: verify JWT subject throws AccessDeniedException
         note right: Subject in token doesn't match Service Provider ID in Payer entity
+        AS --> SPD: **404 Not Found**
 
-    else Access Granted
-        AS -> AS: verifySubjectRequest is verified
+    else **Access Granted**
+        AS -> AS: verify JWT subject succeeds
         note right: Subject in token matches Service Provider ID in Payer entity
 
-        AS -> DB: save deleted activation
+        AS -> DB++: save deleted activation
         note right: Moves activation record to a separate collection
-        activate DB
 
-        DB --> AS: saved
-        deactivate DB
+        return saved
 
-        AS -> DB: deleteById
-        activate DB
+        AS -> DB++: delete activation by ID
+        return deleted
 
-        DB -> AS: deleted
-        deactivate DB
-
-        AS --> SPD: 204 No Content
+        AS --> SPD: **204 No Content**
         deactivate AS
     end
 end
