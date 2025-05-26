@@ -1,11 +1,11 @@
 @startuml
 
 skin rose
-participant "SP Debitore" as SPD
+actor "SP Debitore" as SPD
 participant "Activation Service" as AS
 participant "Auth Service" as AUTH
 participant "Activation Repo" as AR
-participant "Database" as DB
+database "Database" as DB
 
 SPD -> AS: DELETE /activations/{activationId}
 activate AS
