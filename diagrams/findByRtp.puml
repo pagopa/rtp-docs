@@ -1,0 +1,38 @@
+@startuml
+actor "Client" as Client
+participant "SendAPIControllerImpl" as Controller
+participant "SendRTPServiceImpl" as Service
+participant "RtpRepository" as Repository
+participant "RtpDtoMapper" as Mapper
+
+Client -> Controller : GET /rtps/{rtpId}
+activate Controller
+note right of Controller : @PreAuthorize("hasRole('read_rtp_send')")
+
+Controller -> Service : findRtp(rtpId)
+activate Service
+
+Service -> Repository : findById(ResourceID)
+activate Repository
+Repository --> Service : Mono<Rtp>
+deactivate Repository
+
+Service -> Service : MDC.put(...)\nlog retrieval
+Service --> Controller : Mono<Rtp>
+deactivate Service
+
+Controller -> Mapper : toRtpDto(Rtp)
+activate Mapper
+Mapper --> Controller : RtpDto
+deactivate Mapper
+
+Controller --> Client : ResponseEntity<RtpDto>
+deactivate Controller
+
+alt RTP not found
+    Repository --> Service : Mono.empty()
+    Service --> Controller : error(RtpNotFoundException)
+    Controller --> Client : 404 Not Found
+end
+
+@enduml

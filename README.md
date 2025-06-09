@@ -18,6 +18,8 @@ Add a new diagram it's easy, you just need to insert the .puml file under the di
     │   └── deployment-c4.drawio
     ├── cancel.puml
     ├── cancel.svg
+    ├── findByRtp.puml
+    ├── findByRtp.svg
     ├── rtp-state-diagram.drawio
     ├── send.puml
     └── send.svg
