@@ -1,0 +1,53 @@
+@startuml
+skin rose
+title Cancel RTP Process via PagoPa GDP Queue
+queue "PagoPa GDP Queue" as Queue
+participant "Message Consumer" as Consumer
+participant "RTP Service" as Service
+database Database as DB
+participant "SP Debtor API" as SPDAPI
+
+Queue -> Consumer: Queue Message
+note left: Cancel RTP data from GDP
+activate Consumer
+Consumer -> Consumer: Check message operation
+note right: Validate operation type
+alt message is DELETE/CANCEL operation
+Consumer -> Service: cancelRtp(rtpId)
+note right: Extract rtpId from message
+activate Service
+Service -> DB: findRtpById(rtpId)
+activate DB
+alt RTP exists
+    DB --> Service: return RTP
+    
+    Service -> SPDAPI: POST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
+    note right: Send cancellation request to SP Debtor
+    activate SPDAPI
+    
+    alt SP Debtor accepts cancellation
+        SPDAPI --> Service: 201 Created (Cancellation accepted)
+        
+        Service -> Service: setStatus("CANCELED")
+        Service -> DB: saveRtp(rtp)
+        DB --> Service: saveConfirmation
+        Service --> Consumer: Cancellation completed
+    else SP Debtor rejects cancellation
+        SPDAPI --> Service: Error response
+        Service --> Consumer: Cancellation rejected
+    end
+    
+    deactivate SPDAPI
+    
+else RTP not found
+    DB --> Service: return null
+    Service --> Consumer: RTP not found
+end
+deactivate DB
+deactivate Service
+else message is not DELETE/CANCEL operation
+Consumer -> Consumer: Skip processing
+note right: Different operation type
+end
+deactivate Consumer
+@enduml
