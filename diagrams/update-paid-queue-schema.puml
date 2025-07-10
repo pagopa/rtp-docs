@@ -1,0 +1,93 @@
+@startuml
+skin rose
+title GDP Message - **UPDATE PAID** Flow
+
+queue "GDP Event Hub" as Queue
+participant "GDP Message Consumer" as Consumer
+participant "SP Creditore" as SPC
+database "SRTP" as SRTP
+database "Service Registry" as Registry
+participant "SP Debitore" as SPD
+
+Queue -> Consumer: **GDP Message**
+note left: **Status = PAID**
+
+activate Consumer
+Consumer -> Consumer: **Check message operation**
+alt **Operation == UPDATE** and **Status == PAID**
+  Consumer -> SPC: **Process UPDATE PAID operation**
+  activate SPC
+
+  SPC -> SRTP: **findRtpByCompositeKey**
+  activate SRTP
+
+  alt **RTP exists**
+    SRTP --> SPC: **RTP**
+    deactivate SRTP
+
+    SPC -> SPC: **Check RTP status is valid**
+    note right
+      ✅ Valid RTP statuses:
+      - CREATED
+      - SENT
+      - ACCEPTED
+      - USER_ACCEPTED
+    end note
+
+    alt **Status is valid**
+      SPC -> Registry: **Get Service Providers by PSP Tax Code**
+      activate Registry
+      Registry --> SPC: **Service Provider**
+      deactivate Registry
+
+      alt **PSP BIC matches** RTP.serviceProviderDebtor
+        SPC -> SRTP: **Save RTP with PAID status**
+        activate SRTP
+        SRTP --> SPC: **Saved RTP**
+        deactivate SRTP
+
+      else **PSP BIC does NOT match** RTP.serviceProviderDebtor
+        SPC -> SPD: **POST /sepa-request-to-pay-requests/{id}/cancellation-requests**
+        note right: Send **cancellation request** to SP Debitor
+        activate SPD
+
+        alt **SP Debtor accepts**
+          SPD --> SPC: **201 Created**
+
+          SPC -> SPC: **Set RTP status to CANCELLED_PAID**
+
+          SPC -> SRTP: **Save RTP with CANCELLED_PAID status**
+          activate SRTP
+          SRTP --> SPC: **Saved RTP**
+          deactivate SRTP
+
+        else **SP Debtor rejects**
+          SPD --> SPC: **Error response**
+          note right: Based on SP Debitor response
+
+          SPC -> SPC: **Set RTP status to ERROR_CANCEL**
+
+          SPC -> SRTP: **Save RTP with ERROR_CANCEL status**
+          activate SRTP
+          SRTP --> SPC: **Saved RTP**
+          deactivate SRTP
+        end
+      end
+
+      SPC --> Consumer: **Updated RTP**
+
+    else **Invalid RTP status**
+      SPC --> Consumer: **Error – Invalid RTP status**
+    end
+
+  else **RTP not found**
+    SPC --> Consumer: **Error – RTP not found**
+  end
+
+else **Different Operation**
+  SPC --> Consumer: **Not triggered**
+  note right: Operation is not **UPDATE PAID**
+end
+
+deactivate Consumer
+@enduml
