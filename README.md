@@ -20,7 +20,8 @@ Add a new diagram it's easy, you just need to insert the .puml file under the di
     ├── cancel.svg
     ├── findByRtp.puml
     ├── findByRtp.svg
-    ├── rtp-state-diagram.drawio
+    ├── rtp-state-diagram.puml
+    ├── rtp-state-diagram.svg
     ├── send.puml
     └── send.svg
 ```
