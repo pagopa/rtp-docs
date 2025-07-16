@@ -1,0 +1,60 @@
+@startuml
+skin rose
+title RTP State Diagram
+
+state "Initial statuses" as IS {
+    state CREATED
+    state SENT
+}
+
+state "Error statuses" as ES {
+    state ERROR_SEND
+    state ERROR_CANCEL
+}
+
+state "Accepted statuses" as AS {
+    state ACCEPTED
+    state USER_ACCEPTED
+}
+
+state "Rejected statuses" as RS {
+    state REJECTED
+    state USER_REJECTED
+}
+
+state "Cancelled statuses" as CS {
+    state CANCELLED
+    state CANCELLED_REJECTED
+    state CANCELLED_PAID
+    state CANCELLED_ACCR
+}
+
+[*] --> IS
+
+
+CREATED --> SENT : SEND_RTP
+
+IS --> AS : ACCEPT_RTP
+IS --> RS : REJECT_RTP
+IS --> AS : USER_ACCEPT_RTP
+IS --> RS : USER_REJECT_RTP
+IS --> PAID : PAY_RTP
+IS --> CS : CANCEL_RTP
+IS --> ES : ERROR_SEND_RTP
+
+ACCEPTED --> USER_ACCEPTED : USER_ACCEPT_RTP
+AS --> RS : USER_REJECT_RTP
+AS --> CS : CANCEL_RTP
+AS --> PAID : PAY_RTP
+
+CANCELLED --> CANCELLED_ACCR : CANCEL_RTP_ACCR
+CANCELLED --> CANCELLED_REJECTED : CANCEL_RTP_REJECTED
+CANCELLED --> CANCELLED_PAID : CANCEL_RTP_PAID
+CS --> ES : ERROR_CANCEL_RTP
+
+PAID --> [*]
+RS --> [*]
+ES --> [*]
+CS --> [*]
+
+@enduml
