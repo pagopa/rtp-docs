@@ -1,56 +1,115 @@
 @startuml
-title Cancel RTP Process
+' PlantUML Diagram for RTP Cancellation API
+' Title: Unified RTP Cancellation Sequence Diagram
+' Version: 1.0.0
+' Description: This diagram shows the detailed process for cancelling an RTP,
+'              mixing the API specification with the actual Java service and controller logic.
 
-actor "SP Creditor" as Creditor
-participant "RTP API" as API
-participant "RTP Service" as Service
-database Database as DB
-participant "SP Debtor API" as SPDAPI
+!theme materia
 
-Creditor -> API: POST /rtps/{rtpId}/cancel
-note right: With rtpId as path parameter
+title RTP Cancellation API: POST /rtps/{rtpId}/cancellation
 
-activate API
+actor "**Payer's Service Provider**" as PSP
+participant "**RTP Service\n(API/Controller)**" as AS
+participant "**Send RTP Service\n(Business Logic)**" as SS
+participant "**RTP Status Updater**" as SU
+database "**Database**" as DB
+queue "**SP Debtor System**" as SP_Debtor
 
-API -> Service: cancelRtp(rtpId)
-activate Service
+autonumber "<b>[0]"
 
-Service -> DB: findRtpById(rtpId)
+PSP -> AS: **POST** /rtps/{rtpId}/cancellation
+activate AS
+
+AS -> AS: **Security & Role Check**
+note right of AS: Framework validates token & user role.\nCorresponds to `@PreAuthorize("hasRole('write_rtp_send')")`.
+
+AS -> SS: `cancelRtpById(rtpId)`
+activate SS
+note right of AS: Controller delegates to the service layer.
+
+SS -> DB: findById(rtpId)
 activate DB
+note right of SS: Service must first retrieve the RTP to cancel.
 
-alt RTP exists
-    DB --> Service: return RTP
-    
-    Service -> SPDAPI: POST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
-    note right: Send cancellation request to SP Debtor
-    activate SPDAPI
-    
-    alt SP Debtor accepts cancellation
-        SPDAPI --> Service: 201 Created (Cancellation accepted)
-        
-        Service -> Service: setStatus("CANCELED")
-        Service -> DB: saveRtp(rtp)
-        DB --> Service: saveConfirmation
-        Service --> API: success
-        API --> Creditor: 204 No Content
-    else SP Debtor rejects cancellation
-        SPDAPI --> Service: Error response
-        Service --> API: cancellationRejected
-        API --> Creditor: 400/422 Error
-        note right: Appropriate error based on SP Debtor response
-    end
-    
-    deactivate SPDAPI
-    
-else RTP not found
-    DB --> Service: return null
-    Service --> API: rtpNotFound
-    API --> Creditor: 404 Not Found
-    note right: Error response as defined in the API spec
+alt #palegreen **Success Case: Cancellation Sent**
+
+    DB --> SS: Rtp record found
+    deactivate DB
+
+    SS -> SU: `canCancel(Rtp)`
+    activate SU
+    note right of SS: Service checks if the RTP is in a cancellable state.
+    SU --> SS: `true`
+    deactivate SU
+
+    SS -> SS: Map Rtp to SEPA cancel request
+    note right: As per `sepaRequestToPayMapper.toEpcRequestToCancel(...)`
+
+    SS -> SP_Debtor: Send RTP Cancellation Message
+    note right: As per `sendRtpCancellationToServiceProviderDebtor(...)`
+
+    SS --> AS: `Mono<Rtp>`
+    deactivate SS
+
+    AS -> AS: Map result to final response
+    AS --> PSP: **204 No Content**
+    note left of PSP
+        The cancellation request was successfully
+        processed and sent.
+    end note
+
+else #lightyellow **Error: Unprocessable Entity**
+
+    DB --> SS: Rtp record found
+    deactivate DB
+
+    SS -> SU: `canCancel(Rtp)`
+    activate SU
+    SU --> SS: `false`
+    deactivate SU
+
+    SS -> SS: Throw `IllegalStateException`
+    note right of SS: As per `.switchIfEmpty(...)` check on status.
+
+    SS --> AS: Error: `IllegalStateException`
+    deactivate SS
+
+    AS -> AS: Handle `IllegalStateException`
+    note right of AS: As per `.onErrorReturn(IllegalStateException.class, ...)`
+
+    AS --> PSP: **422 Unprocessable Entity**
+    note left of PSP: The RTP is not in a state that allows cancellation.
+
+else #orange **Error: Not Found**
+
+    DB --> SS: empty
+    deactivate DB
+
+    SS -> SS: Throw `RtpNotFoundException`
+    SS --> AS: Error: `RtpNotFoundException`
+    deactivate SS
+
+    AS -> AS: Handle `RtpNotFoundException`
+    note right of AS: As per `.onErrorReturn(RtpNotFoundException.class, ...)`
+
+    AS --> PSP: **404 Not Found**
+    note left of PSP: The specified RTP could not be found.
+
+else #darkred **Other Errors**
+
+    deactivate SS
+    group Authentication / Authorization
+        AS --> PSP: **401 Unauthorized** / **403 Forbidden**
+        note right of AS: Occurs if the initial `@PreAuthorize` check fails.
+    end group
+
+    group Server-Side Error
+        AS --> PSP: **500 Internal Server Error**
+    end group
+
 end
 
-deactivate DB
-deactivate Service
-deactivate API
+deactivate AS
 
 @enduml
