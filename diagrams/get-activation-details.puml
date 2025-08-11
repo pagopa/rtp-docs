@@ -1,54 +1,61 @@
 @startuml
-' PlantUML Diagram for RTP Deactivation API
-' Title: RTP Deactivation Sequence Diagram
+' PlantUML Diagram for RTP Get Activation API
+' Title: RTP Get Activation Sequence Diagram
 ' Version: 1.0.0
 ' Description: This diagram shows the process for a Payer's Service Provider
-'              to deactivate the RTP service for an end-user.
+'              to retrieve an RTP activation record.
 
 !theme materia
 
-title RTP Deactivation API: DELETE /activations/{activationId}
+title RTP Activation API: GET /activations/{activationId}
 
 actor "Payer's Service Provider" as PSP
 participant "RTP Activation API" as API
 
 autonumber
 
-PSP -> API: DELETE /activations/{activationId}\n(Deactivate RTP for a Payer)
+PSP -> API: GET /activations/{activationId}\n(Get RTP Activation)
 activate API
 
 note right of API
-  **Operation:** `deactivate`
-  **Description:** A Payer's Service Provider calls this to remove the registration for one of their users.
+  **Operation:** `getActivation`
+  **Description:** A Payer's Service Provider calls this to retrieve a specific activation record.
 end note
 
 alt #palegreen Success Case
 
     API -> API: 1. Validate Request & Security Token
     API -> API: 2. Find the specified activation
-    note right of API: Activation found.
-    API -> API: 3. Delete activation record from the database
-    API --> PSP: **204 No Content**
+    note right of API: Activation found and user is authorized.
+    API --> PSP: **200 OK**\n(Returns activation details)
     note left of PSP
-        The deactivation was successful.
-        The Payer can no longer receive RTPs.
+        The activation record was found and returned.
     end note
 
 else #lightyellow Not Found
 
     API -> API: 1. Validate Request & Security Token
     API -> API: 2. Find the specified activation
-    note right of API: Activation with the given ID does not exist.
+    note right of API
+        - Activation with the given ID does not exist.
+        - OR User is not authorized to view this activation.
+    end note
     API --> PSP: **404 Not Found**
     note left of PSP
-        The specified activation could not be found.
+        The specified activation could not be found
+        or is not accessible.
     end note
 
 else #lightcoral Client-Side Errors
 
     group Authentication / Authorization Errors
         API --> PSP: **401 Unauthorized**\n(e.g., Invalid or expired token)
-        API --> PSP: **403 Forbidden**\n(e.g., Insufficient permissions or trying to delete another's activation)
+        API --> PSP: **403 Forbidden**\n(e.g., Insufficient permissions)
+    end group
+
+    group Validation & Format Errors
+        API --> PSP: **400 Bad Request**\n(e.g., Invalid activation ID format)
+        API --> PSP: **406 Not Acceptable**\n(e.g., Unsupported 'Accept' header)
     end group
 
     group Rate Limiting
