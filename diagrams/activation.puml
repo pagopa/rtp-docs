@@ -1,19 +1,78 @@
+
+
 @startuml
+' PlantUML Diagram generated from RTP Activation API OpenAPI Spec
+' Title: RTP Activation Sequence Diagram
+' Version: 1.0.0
+' Description: This diagram shows the process for a Payer's Service Provider
+'              to activate the RTP service for an end-user.
 
-skin rose
-participant "SP Debitore" as SPD
-participant "Gestore Repository" as GR
-participant "Database" as DB
+!theme materia
 
-SPD -> GR: POST /activations
+title RTP Activation API: POST /activations
 
-activate GR
+actor "Payer's Service Provider" as PSP
+participant "RTP Activation API" as API
 
-GR -> DB: save
-DB --> GR: saved user
+autonumber
 
-GR --> SPD : 200 OK
+PSP -> API: POST /activations\n(Activate RTP for a Payer)
+activate API
 
-deactivate GR
+note right of API
+  **Operation:** `activate`
+  **Description:** A Payer's Service Provider calls this to register one of their users (Payers) for the RTP service.
+end note
+
+alt #palegreen Success Case
+
+    API -> API: 1. Validate Request & Security Token
+    API -> API: 2. Check for existing activation for the Payer
+    note right of API: No existing activation found.
+    API -> API: 3. Create new activation record in the database
+    API --> PSP: **201 Created**\nHeader: `Location: /activations/{activationId}`
+    note left of PSP
+        The activation was successful.
+        The Payer can now receive RTPs.
+    end note
+
+else #lightyellow Conflict
+
+    API -> API: 1. Validate Request & Security Token
+    API -> API: 2. Check for existing activation for the Payer
+    note right of API: An activation for this Payer already exists.
+    API --> PSP: **409 Conflict**\nHeader: `Location: /activations/{existingActivationId}`
+    note left of PSP
+        An activation for this Payer already exists.
+        The `Location` header points to the existing resource.
+    end note
+
+else #lightcoral Client-Side Errors
+
+    group Authentication / Authorization Errors
+        API --> PSP: **401 Unauthorized**\n(e.g., Invalid or expired token)
+        API --> PSP: **403 Forbidden**\n(e.g., Insufficient permissions or ID mismatch)
+    end group
+
+    group Validation & Format Errors
+        API --> PSP: **400 Bad Request**\n(e.g., Invalid fiscal code, missing fields)
+        API --> PSP: **406 Not Acceptable**\n(e.g., Unsupported 'Accept' header)
+        API --> PSP: **415 Unsupported Media Type**\n(e.g., Invalid 'Content-Type')
+    end group
+
+    group Rate Limiting
+        API --> PSP: **429 Too Many Requests**
+    end group
+
+else #darkred Server-Side Error
+
+    API -> API: An unexpected internal error occurs
+    note right of API: e.g., Database connection failure, unhandled exception.
+    API --> PSP: **500 Internal Server Error**
+
+end
+
+deactivate API
 
 @enduml
+
