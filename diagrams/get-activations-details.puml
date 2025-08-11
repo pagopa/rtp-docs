@@ -1,62 +1,76 @@
 @startuml
 ' PlantUML Diagram for RTP Get Activations (List) API
-' Title: RTP Get Activations Sequence Diagram
-' Version: 1.0.0
-' Description: This diagram shows the process for retrieving a paginated
-'              list of RTP activation records.
+' Title: Unified RTP Get Activations (List) Sequence Diagram
+' Version: 2.0.0
+' Description: This diagram shows the detailed process for retrieving a list of activations,
+'              mixing the API specification with the actual Java service and controller logic.
 
 !theme materia
 
 title RTP Activation API: GET /activations
 
-actor "Payer's Service Provider" as PSP
-participant "RTP Activation API" as API
+actor "**Payer's Service Provider**" as PSP
+participant "**Activation Service\n(API/Controller)**" as AS
+participant "**Payer Service\n(Business Logic)**" as PS
+database "**Database**" as DB
 
-autonumber
+autonumber "<b>[0]"
 
-PSP -> API: GET /activations?page=0&size=20\n(Get Activations List)
-activate API
+PSP -> AS: **GET** /activations?page=0&size=20
+activate AS
 
-note right of API
-  **Operation:** `getActivations`
-  **Description:** Retrieves a paginated list of activation records, respecting user permissions.
-end note
+AS -> AS: **Security & Role Check**
+note right of AS: Framework validates token & user role.\nCorresponds to `@PreAuthorize(...)`.
 
-alt #palegreen Success Case
+alt #palegreen **Success Case: Activations List Retrieved**
 
-    API -> API: 1. Validate Request, Security Token & Page Parameters
-    API -> API: 2. Query activations based on user permissions
-    note right of API: A list of activations is retrieved.
-    API --> PSP: **200 OK**\n(Returns paginated list of activations)
+    AS -> AS: Get `serviceProvider` ID from Security Context
+    note right of AS: As per `ReactiveSecurityContextHolder.getContext()`
+
+    AS -> PS: `getActivationsByServiceProvider(serviceProvider, page, size)`
+    activate PS
+    note right of AS: The controller delegates to the service layer.
+
+    PS -> DB: `getActivationsByServiceProvider(...)`
+    activate DB
+    note right of DB: Query is filtered by `serviceProvider` and paginated.
+    DB --> PS: Returns `List<Payer>` and `total count`
+    deactivate DB
+
+    PS --> AS: `Tuple2<List<Payer>, Long>`
+    deactivate PS
+    note right of PS: The service successfully returns the DB result.
+
+    AS -> AS: Map results to `PageOfActivationsDto`
+    note right of AS: Corresponds to `activationDtoMapper.toPageDto(...)`
+
+    AS --> PSP: **200 OK**\n(Returns `PageOfActivationsDto`)
     note left of PSP
-        A page of activation records was returned.
+        A paginated list of accessible
+        activations is returned.
     end note
 
-else #lightcoral Client-Side Errors
 
-    group Authentication / Authorization Errors
-        API --> PSP: **401 Unauthorized**\n(e.g., Invalid or expired token)
-        API --> PSP: **403 Forbidden**\n(e.g., Insufficient permissions)
+else #darkred **Error Cases**
+
+    group Authentication / Authorization Error
+        AS --> PSP: **401 Unauthorized** / **403 Forbidden**
+        note right of AS: Occurs if the initial `@PreAuthorize` check fails.
     end group
 
-    group Validation & Format Errors
-        API --> PSP: **400 Bad Request**\n(e.g., Invalid page/size parameters)
-        API --> PSP: **406 Not Acceptable**\n(e.g., Unsupported 'Accept' header)
+    group Client-Side Errors
+        AS --> PSP: **400 Bad Request**\n(e.g., Invalid 'page' or 'size' parameters)
+        AS --> PSP: **429 Too Many Requests**\n(e.g., Rate limit exceeded)
     end group
 
-    group Rate Limiting
-        API --> PSP: **429 Too Many Requests**
+    group Server-Side Error
+        AS -> AS: An unexpected internal error occurs
+        note right of AS: e.g., Database connection failure.
+        AS --> PSP: **500 Internal Server Error**
     end group
-
-else #darkred Server-Side Error
-
-    API -> API: An unexpected internal error occurs
-    note right of API: e.g., Database connection failure, unhandled exception.
-    API --> PSP: **500 Internal Server Error**
 
 end
 
-deactivate API
+deactivate AS
 
 @enduml
-
