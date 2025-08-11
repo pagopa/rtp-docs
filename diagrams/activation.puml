@@ -1,78 +1,85 @@
-
-
 @startuml
-' PlantUML Diagram generated from RTP Activation API OpenAPI Spec
-' Title: RTP Activation Sequence Diagram
-' Version: 1.0.0
-' Description: This diagram shows the process for a Payer's Service Provider
-'              to activate the RTP service for an end-user.
+' PlantUML Diagram for RTP Activation API
+' Title: Unified RTP Activation Sequence Diagram
+' Version: 2.0.0
+' Description: This diagram shows the detailed process for activating a Payer,
+'              mixing the API specification with the actual Java service logic.
 
 !theme materia
 
 title RTP Activation API: POST /activations
 
-actor "Payer's Service Provider" as PSP
-participant "RTP Activation API" as API
+actor "**Payer's Service Provider**" as PSP
+participant "**Activation Service**" as AS
+database "**Database**" as DB
 
-autonumber
+autonumber "<b>[0]"
 
-PSP -> API: POST /activations\n(Activate RTP for a Payer)
-activate API
+PSP -> AS: **POST** /activations\n(Activate RTP for a Payer)
+activate AS
 
-note right of API
-  **Operation:** `activate`
-  **Description:** A Payer's Service Provider calls this to register one of their users (Payers) for the RTP service.
+note right of AS
+  **Operation:** `activatePayer`
+  A Payer's SP calls this to register a user for the RTP service.
 end note
 
-alt #palegreen Success Case
+AS -> AS: Validate Request & Security Token
 
-    API -> API: 1. Validate Request & Security Token
-    API -> API: 2. Check for existing activation for the Payer
-    note right of API: No existing activation found.
-    API -> API: 3. Create new activation record in the database
-    API --> PSP: **201 Created**\nHeader: `Location: /activations/{activationId}`
+alt #palegreen **Success Case: Activation Created**
+
+    AS -> AS: Create `Payer` object with a new `ActivationID` and current timestamp
+    note right: As per `new Payer(activationID, serviceProviderDebtor, ...)`
+
+    AS -> DB: `save(payer)`
+    activate DB
+    DB --> AS: Payer saved successfully
+    deactivate DB
+
+    AS -> AS: Log successful activation
+    note right: As per `.doOnSuccess(...)`
+
+    AS --> PSP: **201 Created**\nHeader: `Location: /activations/{newActivationId}`
     note left of PSP
         The activation was successful.
         The Payer can now receive RTPs.
     end note
 
-else #lightyellow Conflict
+else #lightyellow **Conflict: Payer Already Exists**
 
-    API -> API: 1. Validate Request & Security Token
-    API -> API: 2. Check for existing activation for the Payer
-    note right of API: An activation for this Payer already exists.
-    API --> PSP: **409 Conflict**\nHeader: `Location: /activations/{existingActivationId}`
+    AS -> AS: Create `Payer` object with a new `ActivationID` and current timestamp
+
+    AS -> DB: `save(payer)`
+    activate DB
+    DB --> AS: **Error:** `DuplicateKeyException`
+    deactivate DB
+    note right of AS: A unique key constraint (e.g., on fiscalCode) was violated in the database.
+
+    AS -> AS: Map `DuplicateKeyException` to `PayerAlreadyExists` error
+    note right: As per `.onErrorMap(...)`
+
+    AS --> PSP: **409 Conflict**\nHeader: `Location: /activations/{existingActivationId}`
     note left of PSP
         An activation for this Payer already exists.
         The `Location` header points to the existing resource.
     end note
 
-else #lightcoral Client-Side Errors
+else #darkred **Other Errors**
 
-    group Authentication / Authorization Errors
-        API --> PSP: **401 Unauthorized**\n(e.g., Invalid or expired token)
-        API --> PSP: **403 Forbidden**\n(e.g., Insufficient permissions or ID mismatch)
+    group Client-Side Errors
+        AS --> PSP: **400 Bad Request**\n(e.g., Invalid fiscal code, missing fields)
+        AS --> PSP: **401 Unauthorized**\n(e.g., Invalid or expired security token)
+        AS --> PSP: **403 Forbidden**\n(e.g., Insufficient permissions)
+        AS --> PSP: **429 Too Many Requests**\n(e.g., Rate limit exceeded)
     end group
 
-    group Validation & Format Errors
-        API --> PSP: **400 Bad Request**\n(e.g., Invalid fiscal code, missing fields)
-        API --> PSP: **406 Not Acceptable**\n(e.g., Unsupported 'Accept' header)
-        API --> PSP: **415 Unsupported Media Type**\n(e.g., Invalid 'Content-Type')
+    group Server-Side Error
+        AS -> AS: An unexpected internal error occurs
+        note right: e.g., Database connection failure, unhandled exception.
+        AS --> PSP: **500 Internal Server Error**
     end group
-
-    group Rate Limiting
-        API --> PSP: **429 Too Many Requests**
-    end group
-
-else #darkred Server-Side Error
-
-    API -> API: An unexpected internal error occurs
-    note right of API: e.g., Database connection failure, unhandled exception.
-    API --> PSP: **500 Internal Server Error**
 
 end
 
-deactivate API
+deactivate AS
 
 @enduml
-
