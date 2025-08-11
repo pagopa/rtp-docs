@@ -1,43 +1,96 @@
 @startuml
+' PlantUML Diagram for RTP Deactivation API
+' Title: Unified RTP Deactivation Sequence Diagram
+' Version: 2.0.0
+' Description: This diagram merges two sources to show the detailed process for a Payer's Service Provider
+'              to deactivate the RTP service for an end-user, including internal logic and all error cases.
 
-skin rose
-actor "**SP Debitore**" as SPD
+!theme materia
+
+title RTP Deactivation API: DELETE /activations/{activationId}
+
+actor "**Payer's Service Provider**" as PSP
 participant "**Activation Service**" as AS
-database "**Cosmos DB**" as DB
+database "**Database**" as DB
 
-SPD -> AS++: **DELETE** /activations/{activationId}
+autonumber "<b>[0]"
 
-AS -> DB: find by ID
-activate DB
+PSP -> AS: **DELETE** /activations/{activationId}
+activate AS
 
-alt **Activation not found**
-    DB --> AS: empty
-    AS --> SPD: **404 Not Found**
+note right of AS
+  **Operation:** `deactivate`
+  A Payer's SP calls this to remove an RTP registration.
+end note
 
-else **Activation found**
-    DB --> AS: Payer
+AS -> AS: Validate Request & Security Token
+note right: Checks for a valid, non-expired JWT.
+
+alt #palegreen **Success Case: Deactivation Complete**
+
+    AS -> DB: Find activation by ID
+    activate DB
+    DB --> AS: Activation record found
     deactivate DB
 
-    alt **Access Denied**
-        AS -> AS: verify JWT subject throws AccessDeniedException
-        note right: Subject in token doesn't match Service Provider ID in Payer entity
-        AS --> SPD: **404 Not Found**
+    AS -> AS: Verify ownership (JWT subject vs. record)
+    note right: Subject in token matches the Service Provider ID in the record. Access is granted.
 
-    else **Access Granted**
-        AS -> AS: verify JWT subject succeeds
-        note right: Subject in token matches Service Provider ID in Payer entity
+    AS -> DB: Archive activation record
+    activate DB
+    note right of DB: Moves the record to a separate collection for audit purposes.
+    DB --> AS: Archive successful
+    deactivate DB
 
-        AS -> DB++: save deleted activation
-        note right: Moves activation record to a separate collection
+    AS -> DB: Delete activation record
+    activate DB
+    DB --> AS: Deletion successful
+    deactivate DB
 
-        return saved
+    AS --> PSP: **204 No Content**
+    note left of PSP
+        The deactivation was successful.
+        The Payer can no longer receive RTPs.
+    end note
 
-        AS -> DB++: delete activation by ID
-        return deleted
+else #lightyellow **Error: Not Found**
 
-        AS --> SPD: **204 No Content**
-        deactivate AS
-    end
+    AS -> DB: Find activation by ID
+    activate DB
+    DB --> AS: empty
+    deactivate DB
+
+    AS --> PSP: **404 Not Found**
+    note left of PSP: The specified activation could not be found.
+
+else #lightcoral **Error: Forbidden**
+
+    AS -> DB: Find activation by ID
+    activate DB
+    DB --> AS: Activation record found
+    deactivate DB
+
+    AS -> AS: Verify ownership (JWT subject vs. record)
+    note right: **Access Denied**: Subject in token does NOT match the owner.
+
+    AS --> PSP: **403 Forbidden**
+    note left of PSP: You do not have permission to delete this activation.
+
+else #darkred **Other Errors**
+
+    group Client-Side Errors
+        AS --> PSP: **401 Unauthorized**\n(e.g., Invalid or expired security token)
+        AS --> PSP: **429 Too Many Requests**\n(e.g., Rate limit exceeded)
+    end group
+
+    group Server-Side Error
+        AS -> AS: An unexpected internal error occurs
+        note right: e.g., Database connection failure, unhandled exception.
+        AS --> PSP: **500 Internal Server Error**
+    end group
+
 end
+
+deactivate AS
 
 @enduml

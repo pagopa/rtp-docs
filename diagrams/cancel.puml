@@ -1,69 +1,56 @@
 @startuml
-' PlantUML Diagram for RTP Deactivation API
-' Title: RTP Deactivation Sequence Diagram
-' Version: 1.0.0
-' Description: This diagram shows the process for a Payer's Service Provider
-'              to deactivate the RTP service for an end-user.
+title Cancel RTP Process
 
-!theme materia
+actor "SP Creditor" as Creditor
+participant "RTP API" as API
+participant "RTP Service" as Service
+database Database as DB
+participant "SP Debtor API" as SPDAPI
 
-title RTP Deactivation API: DELETE /activations/{activationId}
+Creditor -> API: POST /rtps/{rtpId}/cancel
+note right: With rtpId as path parameter
 
-actor "Payer's Service Provider" as PSP
-participant "RTP Activation API" as API
-
-autonumber
-
-PSP -> API: DELETE /activations/{activationId}\n(Deactivate RTP for a Payer)
 activate API
 
-note right of API
-  **Operation:** `deactivate`
-  **Description:** A Payer's Service Provider calls this to remove the registration for one of their users.
-end note
+API -> Service: cancelRtp(rtpId)
+activate Service
 
-alt #palegreen Success Case
+Service -> DB: findRtpById(rtpId)
+activate DB
 
-    API -> API: 1. Validate Request & Security Token
-    API -> API: 2. Find the specified activation
-    note right of API: Activation found.
-    API -> API: 3. Delete activation record from the database
-    API --> PSP: **204 No Content**
-    note left of PSP
-        The deactivation was successful.
-        The Payer can no longer receive RTPs.
-    end note
-
-else #lightyellow Not Found
-
-    API -> API: 1. Validate Request & Security Token
-    API -> API: 2. Find the specified activation
-    note right of API: Activation with the given ID does not exist.
-    API --> PSP: **404 Not Found**
-    note left of PSP
-        The specified activation could not be found.
-    end note
-
-else #lightcoral Client-Side Errors
-
-    group Authentication / Authorization Errors
-        API --> PSP: **401 Unauthorized**\n(e.g., Invalid or expired token)
-        API --> PSP: **403 Forbidden**\n(e.g., Insufficient permissions or trying to delete another's activation)
-    end group
-
-    group Rate Limiting
-        API --> PSP: **429 Too Many Requests**
-    end group
-
-else #darkred Server-Side Error
-
-    API -> API: An unexpected internal error occurs
-    note right of API: e.g., Database connection failure, unhandled exception.
-    API --> PSP: **500 Internal Server Error**
-
+alt RTP exists
+    DB --> Service: return RTP
+    
+    Service -> SPDAPI: POST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
+    note right: Send cancellation request to SP Debtor
+    activate SPDAPI
+    
+    alt SP Debtor accepts cancellation
+        SPDAPI --> Service: 201 Created (Cancellation accepted)
+        
+        Service -> Service: setStatus("CANCELED")
+        Service -> DB: saveRtp(rtp)
+        DB --> Service: saveConfirmation
+        Service --> API: success
+        API --> Creditor: 204 No Content
+    else SP Debtor rejects cancellation
+        SPDAPI --> Service: Error response
+        Service --> API: cancellationRejected
+        API --> Creditor: 400/422 Error
+        note right: Appropriate error based on SP Debtor response
+    end
+    
+    deactivate SPDAPI
+    
+else RTP not found
+    DB --> Service: return null
+    Service --> API: rtpNotFound
+    API --> Creditor: 404 Not Found
+    note right: Error response as defined in the API spec
 end
 
+deactivate DB
+deactivate Service
 deactivate API
 
 @enduml
-
