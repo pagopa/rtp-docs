@@ -1,0 +1,62 @@
+@startuml
+' PlantUML Diagram for RTP Get Activations (List) API
+' Title: RTP Get Activations Sequence Diagram
+' Version: 1.0.0
+' Description: This diagram shows the process for retrieving a paginated
+'              list of RTP activation records.
+
+!theme materia
+
+title RTP Activation API: GET /activations
+
+actor "Payer's Service Provider" as PSP
+participant "RTP Activation API" as API
+
+autonumber
+
+PSP -> API: GET /activations?page=0&size=20\n(Get Activations List)
+activate API
+
+note right of API
+  **Operation:** `getActivations`
+  **Description:** Retrieves a paginated list of activation records, respecting user permissions.
+end note
+
+alt #palegreen Success Case
+
+    API -> API: 1. Validate Request, Security Token & Page Parameters
+    API -> API: 2. Query activations based on user permissions
+    note right of API: A list of activations is retrieved.
+    API --> PSP: **200 OK**\n(Returns paginated list of activations)
+    note left of PSP
+        A page of activation records was returned.
+    end note
+
+else #lightcoral Client-Side Errors
+
+    group Authentication / Authorization Errors
+        API --> PSP: **401 Unauthorized**\n(e.g., Invalid or expired token)
+        API --> PSP: **403 Forbidden**\n(e.g., Insufficient permissions)
+    end group
+
+    group Validation & Format Errors
+        API --> PSP: **400 Bad Request**\n(e.g., Invalid page/size parameters)
+        API --> PSP: **406 Not Acceptable**\n(e.g., Unsupported 'Accept' header)
+    end group
+
+    group Rate Limiting
+        API --> PSP: **429 Too Many Requests**
+    end group
+
+else #darkred Server-Side Error
+
+    API -> API: An unexpected internal error occurs
+    note right of API: e.g., Database connection failure, unhandled exception.
+    API --> PSP: **500 Internal Server Error**
+
+end
+
+deactivate API
+
+@enduml
+
