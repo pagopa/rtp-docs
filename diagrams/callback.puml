@@ -1,35 +1,117 @@
 @startuml
+!theme materia
+
 title SEPA Request-To-Pay - Callback Processing Flow
 
-participant "SP Debtor" as SPDAPI
-participant "RTP Service" as Service
-database "RTP Database" as DB
+participant "SP Debtor" as SPD
+participant "**RTP Service\n(API/Controller)**" as AS
+participant "**Certificate Checker**" as Checker
+participant "**Registry Service**" as Registry
+participant "**Callback Handler**" as Handler
+participant "**RTP Status Updater**" as Updater
+database "**RTP Database**" as DB
 
-== Callback Processing (Asynchronous Response) ==
+autonumber "<b>[0]"
 
-SPDAPI -> Service: POST to callbackUrl
-note left: AsynchronousSepaRequestToPayResponseResource
-activate Service
+SPD -> AS: **POST** /send (Callback Payload, Client Certificate)
+activate AS
 
-Service -> Service: parseResponse()
-Service -> DB: findRtpByResourceId(resourceId)
-activate DB
-DB --> Service: return RTP
+AS -> Checker: verifyRequestCertificate(payload, certSerialNumber)
+activate Checker
+note right of AS: Controller delegates security verification first.
 
-alt Request Accepted
-    Service -> Service: setStatus("ACCEPTED")
-    Service -> DB: updateRtp(rtp)
-    DB --> Service: updateConfirmation
-    Service --> SPDAPI: 200 OK
-else Request Rejected
-    Service -> Service: setStatus("REJECTED")
-    Service -> Service: setRejectionReason(reason)
-    Service -> DB: updateRtp(rtp)
-    DB --> Service: updateConfirmation
-    Service --> SPDAPI: 200 OK
+Checker -> Checker: Extract `serviceProviderDebtorId` from payload
+Checker -> Registry: getRegistryData()
+activate Registry
+Registry --> Checker: Return registry data
+deactivate Registry
+
+alt #palegreen **Success Case: Certificate Verified & Callback Processed**
+
+    Checker -> Checker: Provider found & certificate serial number matches
+    note right: As per `certificateServiceNumberRegistry.equalsIgnoreCase(...)`
+    Checker --> AS: payload (verification successful)
+    deactivate Checker
+
+    AS -> Handler: handle(payload)
+    activate Handler
+    note right of AS: Verification passed, delegating to business logic handler.
+
+    Handler -> Handler: Extract `resourceId` & `transactionStatus` from payload
+    Handler -> DB: findById(resourceId)
+    activate DB
+    DB --> Handler: Return RTP record
+    deactivate DB
+
+    alt #lightgreen **Status: ACCEPTED** (e.g., ACTC, ACCP)
+        Handler -> Updater: triggerAcceptRtp(Rtp)
+        activate Updater
+        Updater -> DB: Update RTP status to "ACCEPTED"
+        DB -[#lightgreen]-> Updater: confirm update
+        Updater -[#lightgreen]-> Handler: return updated RTP
+        deactivate Updater
+    else #lightyellow **Status: REJECTED** (e.g., RJCT)
+        Handler -> Updater: trigger...RejectRtp(Rtp)
+        activate Updater
+        note right of Handler
+            Logic depends on current state.
+            Either `triggerRejectRtp` or `triggerUserRejectRtp`.
+        end note
+        Updater -> DB: Update RTP status to "REJECTED"
+        DB -[#lightyellow]-> Updater: confirm update
+        Updater -[#lightyellow]-> Handler: return updated RTP
+        deactivate Updater
+    else #lightcoral **Status: ERROR** or other
+        Handler -> Updater: triggerErrorSendRtp(Rtp)
+        activate Updater
+        Updater -> DB: Update RTP status to "ERROR"
+        DB -[#lightcoral]-> Updater: confirm update
+        Updater --[#red]> Handler: Error: `IllegalStateException`
+        deactivate Updater
+    end
+
+    Handler --> AS: success
+    deactivate Handler
+    AS --> SPD: **200 OK**
+
+else #orange **Error: Certificate or Provider Invalid**
+
+    alt **Certificate Mismatch**
+        Checker -> Checker: Certificate serial number does NOT match
+        Checker --[#red]> AS: Error: `IncorrectCertificate`
+        deactivate Checker
+        AS --> SPD: **403 Forbidden**
+    else **Provider Not Found in Registry**
+        Checker -> Checker: No provider found for `serviceProviderDebtorId`
+        Checker --[#red]> AS: Error: `ServiceProviderNotFoundException`
+        deactivate Checker
+        AS --> SPD: **400 Bad Request**
+    end
+
+else #darkred **Error: Data or State Invalid**
+
+    deactivate Checker
+    AS -> Handler: handle(payload)
+    activate Handler
+
+    alt **RTP Not Found in DB**
+        Handler -> Handler: Extract `resourceId`
+        Handler -> DB: findById(resourceId)
+        activate DB
+        DB --> Handler: empty
+        deactivate DB
+        Handler -> Handler: Throw `IllegalStateException`
+        Handler --[#red]> AS: Error: `IllegalStateException`
+        deactivate Handler
+        AS --> SPD: **400 Bad Request**
+    else **Invalid Payload**
+        Handler --[#red]> AS: Error: `IllegalArgumentException`
+        deactivate Handler
+        AS --> SPD: **400 Bad Request**
+    end
+
 end
 
-deactivate DB
-deactivate Service
+deactivate AS
 
 @enduml
