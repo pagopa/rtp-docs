@@ -1,76 +1,97 @@
 @startuml
 ' PlantUML Diagram for RTP Get Activation API
-' Title: RTP Get Activation Sequence Diagram
-' Version: 1.0.0
-' Description: This diagram shows the process for a Payer's Service Provider
-'              to retrieve an RTP activation record.
+' Title: Unified RTP Get Activation Sequence Diagram
+' Version: 2.0.0
+' Description: This diagram shows the detailed process for retrieving an RTP activation,
+'              mixing the API specification with the actual Java service and controller logic.
 
 !theme materia
 
 title RTP Activation API: GET /activations/{activationId}
 
-actor "Payer's Service Provider" as PSP
-participant "RTP Activation API" as API
+actor "**Payer's Service Provider**" as PSP
+participant "**Activation Service\n(API/Controller)**" as AS
+participant "**Payer Service\n(Business Logic)**" as PS
+database "**Database**" as DB
 
-autonumber
+autonumber "<b>[0]"
 
-PSP -> API: GET /activations/{activationId}\n(Get RTP Activation)
-activate API
+PSP -> AS: **GET** /activations/{activationId}
+activate AS
 
-note right of API
-  **Operation:** `getActivation`
-  **Description:** A Payer's Service Provider calls this to retrieve a specific activation record.
-end note
+AS -> AS: **Security & Role Check**
+note right of AS: Framework validates token & user role.\nCorresponds to `@PreAuthorize(...)`.
 
-alt #palegreen Success Case
+alt #palegreen **Success Case: Activation Found**
 
-    API -> API: 1. Validate Request & Security Token
-    API -> API: 2. Find the specified activation
-    note right of API: Activation found and user is authorized.
-    API --> PSP: **200 OK**\n(Returns activation details)
+    AS -> PS: `findPayerById(activationId)`
+    activate PS
+    note right of AS: The controller delegates to the service layer.
+
+    PS -> DB: `findById(id)`
+    activate DB
+    DB --> PS: Returns Payer record
+    deactivate DB
+
+    PS --> AS: `Mono<Payer>`
+    deactivate PS
+    note right of PS: The service successfully finds the Payer.
+
+    AS -> AS: Map `Payer` entity to `ActivationDto`
+    note right of AS: Corresponds to `activationDtoMapper.toActivationDto(...)`
+
+    AS --> PSP: **200 OK**\n(Returns ActivationDto details)
     note left of PSP
-        The activation record was found and returned.
+        The activation record was found
+        and returned successfully.
     end note
 
-else #lightyellow Not Found
+else #lightyellow **Error: Not Found**
 
-    API -> API: 1. Validate Request & Security Token
-    API -> API: 2. Find the specified activation
-    note right of API
-        - Activation with the given ID does not exist.
-        - OR User is not authorized to view this activation.
-    end note
-    API --> PSP: **404 Not Found**
+    AS -> PS: `findPayerById(activationId)`
+    activate PS
+
+    PS -> DB: `findById(id)`
+    activate DB
+    DB --> PS: **empty**
+    deactivate DB
+    note right of DB: No record found for the given ID.
+
+    PS -> PS: Throw `PayerNotFoundException`
+    note right of PS: Triggered by `.switchIfEmpty(...)` in the service.
+
+    PS --> AS: Error: `PayerNotFoundException`
+    deactivate PS
+
+    AS -> AS: Handle `PayerNotFoundException`
+    note right of AS: Caught by `.onErrorResume(...)` in the controller.
+
+    AS --> PSP: **404 Not Found**
     note left of PSP
         The specified activation could not be found
-        or is not accessible.
+        or the user is not authorized to view it.
     end note
 
-else #lightcoral Client-Side Errors
+else #darkred **Other Errors**
 
-    group Authentication / Authorization Errors
-        API --> PSP: **401 Unauthorized**\n(e.g., Invalid or expired token)
-        API --> PSP: **403 Forbidden**\n(e.g., Insufficient permissions)
+    group Authentication / Authorization Error
+        AS --> PSP: **401 Unauthorized** / **403 Forbidden**
+        note right of AS: Occurs if the initial `@PreAuthorize` check fails.
     end group
 
-    group Validation & Format Errors
-        API --> PSP: **400 Bad Request**\n(e.g., Invalid activation ID format)
-        API --> PSP: **406 Not Acceptable**\n(e.g., Unsupported 'Accept' header)
+    group Client-Side Errors
+        AS --> PSP: **400 Bad Request**\n(e.g., Invalid UUID format)
+        AS --> PSP: **429 Too Many Requests**\n(e.g., Rate limit exceeded)
     end group
 
-    group Rate Limiting
-        API --> PSP: **429 Too Many Requests**
+    group Server-Side Error
+        AS -> AS: An unexpected internal error occurs
+        note right of AS: e.g., Database connection failure.
+        AS --> PSP: **500 Internal Server Error**
     end group
-
-else #darkred Server-Side Error
-
-    API -> API: An unexpected internal error occurs
-    note right of API: e.g., Database connection failure, unhandled exception.
-    API --> PSP: **500 Internal Server Error**
 
 end
 
-deactivate API
+deactivate AS
 
 @enduml
-
