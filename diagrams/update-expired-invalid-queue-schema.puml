@@ -1,0 +1,81 @@
+@startuml
+skin rose
+title GDP Message - **UPDATE INVALID / EXPIRED** Flow
+
+queue "GDP Event Hub" as Queue
+participant "GDP Message Consumer" as Consumer
+participant "SP Creditore" as SPC
+database "SRTP" as SRTP
+participant "SP Debitore" as SPD
+
+Queue -> Consumer: **GDP Message**
+note left
+  **Operation = UPDATE**
+  **Status = INVALID** or **EXPIRED**
+end note
+
+activate Consumer
+Consumer -> SPC: **Process UPDATE INVALID / EXPIRED**
+activate SPC
+
+SPC -> SRTP: **findRtpByCompositeKey**
+activate SRTP
+
+alt **RTP exists**
+  SRTP --> SPC: **RTP**
+  deactivate SRTP
+
+  SPC -> SPC: **Check if RTP status is cancellable**
+  note right
+    ✅ Valid statuses for cancellation:
+    - CREATED
+    - SENT
+    - ACCEPTED
+    - USER_ACCEPTED
+  end note
+
+  alt **Status is valid**
+    SPC -> SPD: **POST /sepa-request-to-pay-requests/{id}/cancellation-requests**
+    note right: Send **cancellation request** to SP Debtor
+    activate SPD
+
+    alt **SP Debtor accepts cancellation request**
+      SPD --> SPC: **201 Created / Success**
+
+      SPC -> SPC: **Set RTP status to CANCELLED**
+      note right: Cancellation process initiated
+
+      SPC -> SRTP: **Save RTP with CANCELLED status**
+      activate SRTP
+      SRTP --> SPC: **Saved RTP**
+      deactivate SRTP
+
+    else **SP Debtor rejects or call fails**
+      SPD --> SPC: **Error response (e.g., 4xx, 5xx)**
+      note right: Cancellation failed during communication
+
+      SPC -> SPC: **Set RTP status to ERROR_CANCEL**
+
+      SPC -> SRTP: **Save RTP with ERROR_CANCEL status**
+      activate SRTP
+      SRTP --> SPC: **Saved RTP**
+      deactivate SRTP
+    end
+
+    deactivate SPD
+    SPC --> Consumer: **Outcome processed**
+
+  else **Invalid RTP status for cancellation**
+    SPC -> Consumer: **Error – Invalid RTP status**
+    note right: RTP is already in a final state (e.g., PAID, REJECTED)
+  end
+
+else **RTP not found**
+  SRTP --> SPC
+  deactivate SRTP
+  SPC --> Consumer: **Error – RTP not found**
+end
+
+deactivate SPC
+deactivate Consumer
+@enduml
