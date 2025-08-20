@@ -1,5 +1,4 @@
 name: Generate PlantUML Diagrams
-
 on:
   pull_request:
     types:
@@ -8,24 +7,20 @@ on:
       - synchronize
     branches:
       - main
-
 jobs:
   generate_diagrams:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 #v4.1.1+
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref }}
-
       - name: Set up Java
         uses: actions/setup-java@8df1039502a15bceb9433410b1a100fbe190c53b #v4.5.0
         with:
           distribution: 'temurin'
           java-version: '21'
-
       - name: Install Graphviz
         run: |
           sudo apt-get update && sudo apt-get install -y graphviz wget
@@ -37,8 +32,23 @@ jobs:
           for file in $(find ./diagrams -type f -name "*.puml"); do
             java -jar plantuml.jar "$file" -tsvg
           done
+          # Install draw.io CLI (drawio-desktop) with modified dependencies
+      - name: Install draw.io CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgbm1 libasound2t64 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgtk-3-0 libgbm1 libnss3 libx11-xcb1 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libxcursor1 libxi6 libxtst6 libxss1
+          wget https://github.com/jgraph/drawio-desktop/releases/download/v21.2.1/drawio-amd64-21.2.1.deb
+          sudo dpkg -i drawio-amd64-21.2.1.deb || sudo apt-get -f install -y
+      
+      # Generate images from draw.io files
+      - name: Generate Draw.io Images
+        run: |
+          for file in $(find ./diagrams -type f -name "*.drawio"); do
+            output_file="${file%.drawio}.png"
+            drawio -x -f png -o "$output_file" "$file"
+          done
+
       - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 #v9.1.4
         with:
           add: 'diagrams'
           message: 'Diagrams commit'
-          
