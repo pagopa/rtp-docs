@@ -8,8 +8,6 @@ participant "SP Creditore" as SPC
 participant "SP Debitore" as SPD
 participant "Gestore Repository" as GR
 database "SRTP" as SRTP
-database "Payer" as Payer
-database "Service Registry" as Registry
 
 Queue -> Consumer: **GDP Message**
 note left: **Status = VALID**
@@ -45,19 +43,37 @@ alt **Operation == UPDATE** and **Status == VALID**
       alt **SP Debtor accepts**
         SPD --> SPC: **201 Created**
 
-        SPC -> SPC: **Set RTP status to CANCELLED_PAID**
+        SPC -> SPC: **Set RTP status to CANCELLED**
 
-        SPC -> SRTP: **Save RTP with CANCELLED_PAID status**
+        SPC -> SRTP: **Save RTP with CANCELLED status**
         activate SRTP
         SRTP --> SPC: **Saved RTP**
         deactivate SRTP
 
-        SPC -> GR: GET /activations/payer
-        activate GR
-        GR -> Payer: findByPayerId
-        activate Payer
-        Payer --> GR
-        deactivate Payer
+        SPC -> SPD: **POST /sepa-request-to-pay**
+        note right: Send **RTP** to SP Debitor
+
+        alt **Debtor accepts**
+          SPD --> SPC: **Response**
+
+          SPC -> SPC: **Set RTP status to SENT**
+
+          SPC -> SRTP: **Save RTP with SENT status**
+          activate SRTP
+          SRTP --> SPC: **Saved RTP**
+          deactivate SRTP
+
+        else **Debtor rejects**
+          SPD --> SPC: **Error response**
+          note right: Based on SP Debitor response
+
+          SPC -> SPC: **Set RTP status to REJECTED**
+
+          SPC -> SRTP: **Save RTP with REJECTED status**
+          activate SRTP
+          SRTP --> SPC: **Saved RTP**
+          deactivate SRTP
+        end
 
       else **SP Debtor rejects**
         SPD --> SPC: **Error response**
@@ -75,7 +91,36 @@ alt **Operation == UPDATE** and **Status == VALID**
       SPC --> Consumer: **Updated RTP**
 
     else **RTP not found**
-      SPC --> Consumer: **Error – RTP not found**
+      SPC -> SPC: **Create RTP in status CREATED**
+
+      SPC -> SRTP: **Save RTP with CREATED status**
+      activate SRTP
+      SRTP --> SPC: **Saved RTP**
+      deactivate SRTP
+
+      SPC -> SPD: **POST /sepa-request-to-pay**
+      note right: Send **RTP** to SP Debitor
+
+      alt **Debtor accepts**
+        SPD --> SPC: **Response**
+
+        SPC -> SPC: **Set RTP status to SENT**
+
+        SPC -> SRTP: **Save RTP with SENT status**
+        activate SRTP
+        SRTP --> SPC: **Saved RTP**
+        deactivate SRTP
+
+      else **Debtor rejects**
+        SPD --> SPC: **Error response**
+        note right: Based on SP Debitor response
+
+        SPC -> SPC: **Set RTP status to REJECTED**
+
+        SPC -> SRTP: **Save RTP with REJECTED status**
+        activate SRTP
+        SRTP --> SPC: **Saved RTP**
+        deactivate SRTP
     end
 
   else **Invalid RTP status**
