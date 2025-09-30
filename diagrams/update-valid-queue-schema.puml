@@ -6,7 +6,6 @@ queue "**GDP Event Hub**" as Queue
 participant "**GDP Message Consumer**" as Consumer
 participant "**SP Creditore**" as SPC
 participant "**SP Debitore**" as SPD
-participant "**Gestore Repository**" as GR
 database "**SRTP**" as SRTP
 
 Queue -> Consumer: **GDP Message**

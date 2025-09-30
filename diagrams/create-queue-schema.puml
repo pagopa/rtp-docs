@@ -7,6 +7,7 @@ participant "Gestore Repository" as GR
 database "Payer" as Payer
 database "SRTP" as SRTP
 database "Service Registry" as SR
+database "Payee Registry" as PR
 participant "CBI" as SPD
 
 Queue -> Consumer: Queue Message
@@ -15,6 +16,11 @@ activate Consumer
 Consumer -> Consumer: Check message operation
 note right: Validate operation type
 alt message is CREATE operation
+Consumer -> PR: Retrieve Payee data
+activate PR
+PR --> Consumer: Payee data
+deactivate PR
+Consumer -> Consumer: Map message and Payee data into RTP
 Consumer -> SPC: Process CREATE RTP Message
 activate SPC
 SPC -> GR: GET /activations/payer
