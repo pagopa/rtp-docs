@@ -1,0 +1,112 @@
+@startuml
+' PlantUML Diagram for RTP Payer Takeover API
+' Title: Unified RTP Takeover Sequence Diagram
+' Version: 1.0.0
+' Description: This diagram shows the detailed process for a new Service Provider
+'              taking over an existing Payer activation using a one-time password (OTP).
+
+!theme materia
+
+title RTP Activation API: POST /activations/takeover/{otp}
+
+actor "**New Service Provider**" as NewSP
+participant "**Activation Service**" as AS
+database "**Database**" as DB
+
+autonumber "<b>[0]"
+
+NewSP -> AS: **POST** /activations/takeover/{otp}\n(Take over an existing Payer activation)
+activate AS
+
+note right of AS
+  **Operation:** `takeoverPayer`
+  A new SP calls this to assume control of an existing
+  activation using a valid OTP.
+end note
+
+AS -> AS: Validate Request & Security Token (get `subject`)
+
+alt #palegreen **Success Case: Takeover Complete**
+
+    AS -> DB: Check OTP and Subject
+    activate DB
+    note right of DB
+      Finds the OTP, validates it belongs to the `subject`,
+      is not expired, and has not been used.
+      Marks the OTP as redeemed.
+    end note
+    DB --> AS: Success
+    deactivate DB
+
+    AS -> DB: Find the Payer
+    activate DB
+    DB --> AS: Return the Payer to take over
+    deactivate DB
+
+    AS -> DB: Deactivate the User
+    activate DB
+    note right of DB
+        Deactivate the User
+    end note
+    DB --> AS: Deactivation Acknowledged
+    deactivate DB
+
+    AS -> DB: Create and save new `Payer`
+    activate DB
+
+    DB --> AS: New Payer saved successfully
+    deactivate DB
+
+
+    AS --> NewSP: **201 Created**\nHeader: `Location: /activations/{newActivationId}`
+    note left of NewSP
+        The takeover was successful.
+        The Payer is now associated with the new SP.
+    end note
+
+else #lightyellow **Failure: Invalid OTP or Payer Not Found**
+
+    AS -> DB: Check OTP and Subject
+    activate DB
+    DB --> AS: **Error:** OTP not found, expired, or already redeemed
+    deactivate DB
+
+    AS --> NewSP: **404 Not Found**
+    note left of NewSP
+        The provided OTP is invalid or has already
+        been used. The takeover cannot proceed.
+    end note
+
+else #orange **Failure: Subject Mismatch**
+
+    AS -> DB: Check OTP and Subject
+    activate DB
+    DB --> AS: **Error:** OTP subject does not match requester
+    deactivate DB
+
+    AS --> NewSP: **403 Forbidden**
+    note left of NewSP
+        You are not authorized to use this OTP.
+        It was generated for a different Service Provider.
+    end note
+
+else #darkred **Other Errors**
+
+    group Client-Side Errors
+        AS --> NewSP: **400 Bad Request**\n(e.g., malformed UUID for OTP)
+        AS --> NewSP: **401 Unauthorized**\n(e.g., Invalid or expired security token)
+    end group
+
+    group Server-Side Error
+        AS -> AS: An unexpected internal error occurs
+        note right
+            e.g., Database connection failure, or Payer not found
+            for a valid OTP (data inconsistency).
+        end note
+        AS --> NewSP: **500 Internal Server Error**
+    end group
+
+end
+
+deactivate AS
+@enduml
