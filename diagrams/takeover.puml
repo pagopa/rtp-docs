@@ -1,0 +1,142 @@
+@startuml
+' PlantUML Diagram for RTP Payer Takeover API with Resilient Notification
+' Title: Unified RTP Takeover Sequence Diagram
+' Version: 3.0.0
+' Description: This diagram shows the takeover process, including a resilient
+'              notification mechanism with retries and a DB log for failures.
+
+!theme materia
+
+title RTP Activation API: POST /activations/takeover/{otp}
+
+actor "**New Service Provider**" as NewSP
+participant "**Activation Service**" as AS
+actor "**Old Service Provider**" as OldSP
+database "**Database**" as DB
+
+autonumber "<b>[0]"
+
+NewSP -> AS: **POST** /activations/takeover/{otp}\n(Take over an existing Payer activation)
+activate AS
+
+note right of AS
+  **Operation:** `takeoverPayer`
+  A new SP calls this to assume control of an existing
+  activation and notify the original SP.
+end note
+
+AS -> AS: Validate Request & Security Token (get `subject`)
+
+alt #palegreen **Success Case: Takeover Complete**
+
+    AS -> DB: Redeem
+    activate DB
+    DB --> AS: Return `TakeOverOtp` (contains `fiscalCode`)
+    deactivate DB
+
+    AS -> DB: Search for the Payer
+    activate DB
+    DB --> AS: Return the Payer (contains Old SP info)
+    deactivate DB
+
+    AS -> DB: Deactivate the Payer
+    activate DB
+    DB --> AS: Deactivation Acknowledged
+    deactivate DB
+
+    AS -> AS: Create new `Payer` object for the new SP (`subject`)
+    
+    AS -> DB: Save new `Payer`
+    activate DB
+    DB --> AS: New Payer saved successfully
+    deactivate DB
+
+    ' ==========================================================
+    ' New Section: Resilient Notification Logic
+    ' ==========================================================
+    group Resilient Notification to Old Service Provider
+    
+        loop 3 times [Notification Retry]
+            AS -> OldSP: **POST** /v1/notifications/deactivation
+            activate OldSP
+            
+            alt #b3ffb3 Success
+                OldSP --> AS: 200 OK (Notification Acknowledged)
+                deactivate OldSP
+                break
+            else #ffe0b3 Failure
+                OldSP --> AS: Error (e.g., Timeout, 5xx)
+                deactivate OldSP
+            end
+        end
+        
+        alt #ffcdd2 Notification Failed Permanently
+            note right of AS
+                All 3 notification attempts failed.
+                Logging the failure for offline processing.
+            end note
+            
+            AS -> DB: Save failedNotification
+            activate DB
+            note right of DB
+                Write to `failed_takeover_notification` collection
+                - old_sp_id
+                - payer_fiscal_code
+                - timestamp
+            end note
+            DB --> AS: Failure Logged
+            deactivate DB
+        end
+    end
+
+    AS --> NewSP: **201 Created**\nHeader: `Location: /activations/{newActivationId}`
+    note left of NewSP
+        The takeover was successful.
+        The Payer is now associated with the new SP.
+    end note
+
+else #lightyellow **Failure: Invalid OTP or Payer Not Found**
+
+    AS -> DB: Reedem
+    activate DB
+    DB --> AS: **Error:** OTP not found, expired, or already redeemed
+    deactivate DB
+
+    AS --> NewSP: **401 Unauthorized**
+    note left of NewSP
+        The provided OTP is invalid or has already
+        been used. The takeover cannot proceed.
+    end note
+
+else #orange **Failure: Subject Mismatch**
+
+    AS -> DB: Reedem
+    activate DB
+    DB --> AS: **Error:** OTP subject does not match requester
+    deactivate DB
+
+    AS --> NewSP: **403 Forbidden**
+    note left of NewSP
+        You are not authorized to use this OTP.
+        It was generated for a different Service Provider.
+    end note
+
+else #darkred **Other Errors**
+
+    group Client-Side Errors
+        AS --> NewSP: **400 Bad Request**\n(e.g., malformed UUID for OTP)
+        AS --> NewSP: **401 Unauthorized**\n(e.g., Invalid or expired security token)
+    end group
+
+    group Server-Side Error
+        AS -> AS: An unexpected internal error occurs
+        note right
+            e.g., Database connection failure.
+        end note
+        AS --> NewSP: **500 Internal Server Error**
+    end group
+
+end
+
+deactivate AS
+@enduml

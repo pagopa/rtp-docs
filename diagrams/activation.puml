@@ -1,9 +1,9 @@
 @startuml
 ' PlantUML Diagram for RTP Activation API
-' Title: Unified RTP Activation Sequence Diagram
-' Version: 2.0.0
-' Description: This diagram shows the detailed process for activating a Payer,
-'              mixing the API specification with the actual Java service logic.
+' Title: Unified RTP Activation Sequence Diagram with OTP Takeover
+' Version: 2.1.0
+' Description: This diagram shows the detailed process for activating a Payer.
+'              If the Payer already exists, a takeover OTP is generated.
 
 !theme materia
 
@@ -19,16 +19,16 @@ PSP -> AS: **POST** /activations\n(Activate RTP for a Payer)
 activate AS
 
 note right of AS
-  **Operation:** `activatePayer`
+  **Operation:** `activate`
   A Payer's SP calls this to register a user for the RTP service.
 end note
 
 AS -> AS: Validate Request & Security Token
 
-alt #palegreen **Success Case: Activation Created**
+alt #palegreen **Success Case: New Payer Activation**
 
     AS -> AS: Create `Payer` object with a new `ActivationID` and current timestamp
-    note right: As per `new Payer(activationID, serviceProviderDebtor, ...)`
+    note right: As per `new Payer(...)`
 
     AS -> DB: `save(payer)`
     activate DB
@@ -44,23 +44,34 @@ alt #palegreen **Success Case: Activation Created**
         The Payer can now receive RTPs.
     end note
 
-else #lightyellow **Conflict: Payer Already Exists**
+else #lightyellow **Conflict: Payer Already Exists -> Generate OTP**
 
-    AS -> AS: Create `Payer` object with a new `ActivationID` and current timestamp
+    AS -> AS: Create `Payer` object to attempt insertion
 
     AS -> DB: `save(payer)`
     activate DB
     DB --> AS: **Error:** `DuplicateKeyException`
     deactivate DB
-    note right of AS: A unique key constraint (e.g., on fiscalCode) was violated in the database.
+    note right of AS: A unique key constraint on fiscalCode was violated.
 
     AS -> AS: Map `DuplicateKeyException` to `PayerAlreadyExists` error
-    note right: As per `.onErrorMap(...)`
+    note right: As per `.onErrorResume(PayerAlreadyExists.class, ...)`
 
-    AS --> PSP: **409 Conflict**\nHeader: `Location: /activations/{existingActivationId}`
+    AS -> AS: **Call `generateTakeOverOtp()`**
+    note right
+        The payer already exists.
+        The service now initiates the takeover process.
+    end note
+
+    AS -> DB: Create and save `TakeOverOtp`
+    activate DB
+    DB --> AS: Return new `OTP`
+    deactivate DB
+
+    AS --> PSP: **409 Conflict**\nHeader: `Location: /takeover/{otp}`
     note left of PSP
         An activation for this Payer already exists.
-        The `Location` header points to the existing resource.
+        The `Location` header points to the takeover URI with the generated OTP.
     end note
 
 else #darkred **Other Errors**
@@ -81,5 +92,4 @@ else #darkred **Other Errors**
 end
 
 deactivate AS
-
 @enduml
