@@ -11,7 +11,7 @@ title RTP Activation API: POST /activations/takeover/{otp}
 
 actor "**New Service Provider**" as NewSP
 participant "**Activation Service**" as AS
-participant "**Old Service Provider**" as OldSP
+actor "**Old Service Provider**" as OldSP
 database "**Database**" as DB
 
 autonumber "<b>[0]"
@@ -29,24 +29,24 @@ AS -> AS: Validate Request & Security Token (get `subject`)
 
 alt #palegreen **Success Case: Takeover Complete**
 
-    AS -> DB: `redeem(otp, subject)`
+    AS -> DB: Redeem
     activate DB
     DB --> AS: Return `TakeOverOtp` (contains `fiscalCode`)
     deactivate DB
 
-    AS -> DB: `findByFiscalCode(fiscalCode)`
+    AS -> DB: Search for the Payer
     activate DB
-    DB --> AS: Return `payerToTakeOver` (contains Old SP info)
+    DB --> AS: Return the Payer (contains Old SP info)
     deactivate DB
 
-    AS -> DB: `takeOverDeactivate(payerToTakeOver)`
+    AS -> DB: Deactivate the Payer
     activate DB
     DB --> AS: Deactivation Acknowledged
     deactivate DB
 
     AS -> AS: Create new `Payer` object for the new SP (`subject`)
     
-    AS -> DB: `save(newPayer)`
+    AS -> DB: Save new `Payer`
     activate DB
     DB --> AS: New Payer saved successfully
     deactivate DB
@@ -76,7 +76,7 @@ alt #palegreen **Success Case: Takeover Complete**
                 Logging the failure for offline processing.
             end note
             
-            AS -> DB: save(failedNotification)
+            AS -> DB: Save failedNotification
             activate DB
             note right of DB
                 Write to `failed_takeover_notification` collection
@@ -97,12 +97,12 @@ alt #palegreen **Success Case: Takeover Complete**
 
 else #lightyellow **Failure: Invalid OTP or Payer Not Found**
 
-    AS -> DB: `redeem(otp, subject)`
+    AS -> DB: Reedem
     activate DB
     DB --> AS: **Error:** OTP not found, expired, or already redeemed
     deactivate DB
 
-    AS --> NewSP: **404 Not Found**
+    AS --> NewSP: **401 Unauthorized**
     note left of NewSP
         The provided OTP is invalid or has already
         been used. The takeover cannot proceed.
@@ -110,7 +110,7 @@ else #lightyellow **Failure: Invalid OTP or Payer Not Found**
 
 else #orange **Failure: Subject Mismatch**
 
-    AS -> DB: `redeem(otp, subject)`
+    AS -> DB: Reedem
     activate DB
     DB --> AS: **Error:** OTP subject does not match requester
     deactivate DB
