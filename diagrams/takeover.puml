@@ -80,9 +80,11 @@ alt #palegreen **Success Case: Takeover Complete**
             activate DB
             note right of DB
                 Write to `failed_takeover_notification` collection
+                - old_activation_id
                 - old_sp_id
                 - payer_fiscal_code
-                - timestamp
+                - takeover_timestamp
+                - error_message
             end note
             DB --> AS: Failure Logged
             deactivate DB
