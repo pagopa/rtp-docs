@@ -63,10 +63,20 @@ else #lightyellow **Conflict: Payer Already Exists -> Generate OTP**
         The service now initiates the takeover process.
     end note
 
-    AS -> DB: Create and save `TakeOverOtp`
+    AS -> AS: Generate takeover OTP (plain value)
+    AS -> AS: Compute SHA-256 hash of OTP
+
+    AS -> DB: Create and save `TakeOverOtp` (otpHash = SHA-256(otp))
     activate DB
-    DB --> AS: Return new `OTP`
+    DB --> AS: TakeOverOtp saved
     deactivate DB
+
+    note right
+      The OTP is generated in plain form
+      but only its SHA-256 hash is persisted.
+      The plain OTP is returned to the caller
+      and never stored.
+    end note
 
     AS --> PSP: **409 Conflict**\nHeader: `Location: /takeover/{otp}`
     note left of PSP
