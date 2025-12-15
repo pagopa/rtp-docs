@@ -117,7 +117,7 @@ else #fff59d **Failure: OTP expired**
     DB --> AS: **Error:** OTP expired
     deactivate DB
 
-    AS --> NewSP: **403 Forbidden**
+    AS --> NewSP: **401 Unauthorized**
     note left of NewSP
         The provided OTP is expired. The takeover cannot proceed.
     end note
