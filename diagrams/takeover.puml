@@ -97,17 +97,29 @@ alt #palegreen **Success Case: Takeover Complete**
         The Payer is now associated with the new SP.
     end note
 
-else #lightyellow **Failure: Invalid OTP or Payer Not Found**
+else #lightyellow **Failure: OTP is invalid or Payer Not Found**
 
     AS -> DB: Reedem
     activate DB
-    DB --> AS: **Error:** OTP not found, expired, or already redeemed
+    DB --> AS: **Error:** OTP not found, or already redeemed
     deactivate DB
 
     AS --> NewSP: **401 Unauthorized**
     note left of NewSP
         The provided OTP is invalid or has already
         been used. The takeover cannot proceed.
+    end note
+
+else #fff59d **Failure: OTP expired**
+
+    AS -> DB: Reedem
+    activate DB
+    DB --> AS: **Error:** OTP expired
+    deactivate DB
+
+    AS --> NewSP: **403 Forbidden**
+    note left of NewSP
+        The provided OTP is expired. The takeover cannot proceed.
     end note
 
 else #orange **Failure: Subject Mismatch**
