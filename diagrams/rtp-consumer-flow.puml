@@ -1,17 +1,14 @@
 @startuml
 title RTP Consumer - Message flow (GPD -> RTP)
 
-hide footbox
-autonumber
-
-actor "Event Hub\n(GPD domain)" as EH
+actor "GPD EventHub" as EH
 participant "rtp-consumer" as C
 participant "mil-auth" as MA
 participant "rtp-sender" as S
-queue "DLQ\n(Dead letter queue)" as DLQ
+queue "Dead letter queue" as DLQ
 
 note over EH,C
-A message is published on Event Hub (GPD domain).
+A message is published on GPD EventHub.
 rtp-consumer receives it asynchronously.
 end note
 
@@ -27,11 +24,12 @@ C -> C : validate(message)
 alt VALIDATION FAILED
   note right of C
   The message is malformed or invalid.
-  It is published to the DLQ for reprocessing.
+  It is published to the Dead letter queue for reprocessing.
   end note
 
   C -> DLQ : Publish(originalMessage + failure)\nmetadata: httpStatus, errorMessage, timestamp
   DLQ --> C : ack
+  C --> EH : ack
 
 else VALIDATION SUCCEEDED
   note right of C
@@ -48,6 +46,7 @@ else VALIDATION SUCCEEDED
 
   alt POST SUCCEEDED
     S --> C : 200 OK\nresponse: RTP body
+    C --> EH : ack
     note right of C
     The message has been successfully processed.
     end note
@@ -56,12 +55,13 @@ else VALIDATION SUCCEEDED
     S --> C : error response / timeout
     note right of C
     Even if the POST call fails,
-    the message is sent to the DLQ
+    the message is sent to the Dead letter queue
     for reprocessing and analysis.
     end note
 
     C -> DLQ : Publish(originalMessage + failure)\nmetadata: httpStatus, errorMessage, timestamp
     DLQ --> C : ack
+    C --> EH : ack
   end
 end
 
