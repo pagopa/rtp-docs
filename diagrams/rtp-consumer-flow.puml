@@ -1,0 +1,68 @@
+@startuml
+title RTP Consumer - Message flow (GPD -> RTP)
+
+actor "GPD EventHub" as EH
+participant "rtp-consumer" as C
+participant "mil-auth" as MA
+participant "rtp-sender" as S
+queue "Dead letter queue" as DLQ
+
+note over EH,C
+A message is published on GPD EventHub.
+rtp-consumer receives it asynchronously.
+end note
+
+EH -> C : EventReceived(message)\n(headers + payload)
+
+note right of C
+Step 1 - Message validation
+- Syntactic validation (schema, required fields)
+end note
+
+C -> C : validate(message)
+
+alt VALIDATION FAILED
+  note right of C
+  The message is malformed or invalid.
+  It is published to the Dead letter queue for reprocessing.
+  end note
+
+  C -> DLQ : Publish(originalMessage + failure)\nmetadata: httpStatus, errorMessage, timestamp
+  DLQ --> C : ack
+  C --> EH : ack
+
+else VALIDATION SUCCEEDED
+  note right of C
+  Step 2 - Authentication towards rtp-sender
+  The call to rtp-sender is authenticated.
+  A token is first retrieved from mil-auth,
+  then the authenticated POST call is executed.
+  end note
+
+  C -> MA : POST /token\n(scope: rtp-sender)
+  MA --> C : 200 OK\naccess_token
+
+  C -> S : POST /gpd/message\nAuthorization: Bearer <token>\nbody: validated message
+
+  alt POST SUCCEEDED
+    S --> C : 200 OK\nresponse: RTP body
+    C --> EH : ack
+    note right of C
+    The message has been successfully processed.
+    end note
+
+  else POST FAILED (4xx / 5xx / timeout)
+    S --> C : error response / timeout
+    note right of C
+    Even if the POST call fails,
+    the message is sent to the Dead letter queue
+    for reprocessing and analysis.
+    end note
+
+    C -> DLQ : Publish(originalMessage + failure)\nmetadata: httpStatus, errorMessage, timestamp
+    DLQ --> C : ack
+    C --> EH : ack
+  end
+end
+
+@enduml
