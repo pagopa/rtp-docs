@@ -9,7 +9,8 @@
 
 title RTP Send API: Detailed Flow
 
-actor "User Agent" as UA
+boundary "MS-RTP-CONSUMER" as RTPC
+
 participant "Pagopa - SP Creditore" as SPC
 participant "Gestore Repository" as GR
 database "Payer" as Payer
@@ -19,7 +20,7 @@ participant "CBI" as SPD
 
 autonumber
 
-UA -> SPC: POST /rtps
+RTPC -> SPC: POST /rtps
 note left: access token
 activate SPC
 
