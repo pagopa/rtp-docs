@@ -1,5 +1,5 @@
 @startuml
-title RTP Consumer — Message flow (GPD → RTP)
+title RTP Consumer — Message flow (GPD -> RTP)
 
 queue "GPD EventHub" as EH
 participant "rtp-consumer" as C
@@ -8,7 +8,7 @@ participant "rtp-sender" as S
 participant "rtp-activator" as A
 queue "Dead-letter queue" as DLQ
 
-EH -> C : Event payload
+EH -> C : Message payload
 C -> C : Validate payload
 
 alt Validation OK
