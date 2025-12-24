@@ -5,42 +5,48 @@ queue "GPD EventHub" as EH
 participant "rtp-consumer" as C
 participant "mil-auth" as MA
 participant "rtp-sender" as S
-participant "rtp-activator" as A
 queue "Dead-letter queue" as DLQ
 
 EH -> C : Message payload
+activate C
+
 C -> C : Validate payload
 
 alt Validation OK
   C -> MA : POST /token
+  activate MA
   MA --> C : 200 OK (token)
+  deactivate MA
 
   C -> S : POST /gpd/message (payload + token)
+  activate S
 
   alt POST OK
-    S -> MA : POST /token
-    MA --> S : 200 OK (token)
-
-    S -> A : GET /activations/payer
-    A --> S : 200 OK (payer)
-
     S --> C : 200 OK (RTP)
+    deactivate S
     C --> EH : Ack
 
   else POST failed (4xx / 5xx / timeout)
     S --> C : Error / timeout
+    deactivate S
 
     C -> DLQ : Enqueue failure payload
+    activate DLQ
     DLQ --> C : Ack (DLQ)
+    deactivate DLQ
+
     C --> EH : Ack
   end
 
 else Validation failed
   C -> DLQ : Enqueue invalid payload
+  activate DLQ
   note right of DLQ
     Malformed or invalid message.
   end note
   DLQ --> C : Ack (DLQ)
+  deactivate DLQ
+
   C --> EH : Ack
 end
 
