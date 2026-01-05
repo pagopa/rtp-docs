@@ -5,7 +5,6 @@ title RTP Send Flow
 
 participant "RTP-CONSUMER" as CONSUMER
 participant "MS-SENDER" as SENDER
-participant "SPD" as SPD
 
 autonumber
 
@@ -17,31 +16,24 @@ SENDER -> SENDER: validate payload
 SENDER -> SENDER: determine operation type\n(CREATE, UPDATE, DELETE)
 
 alt CREATE
-    SENDER -> SPD: SEND RTP
-    note right of SPD: See diagram: RTP Create Flow
-    activate SPD
-    SPD --> SENDER: OK
-    deactivate SPD
+    SENDER -> SENDER: CREATE RTP
+    note right of SENDER
+      See diagram: RTP Create Flow
+    end note
 
 else UPDATE
-    SENDER -> SPD: CANCEL RTP (RFC)
-    note right of SPD: See diagram: RTP RFC Flow
-    activate SPD
-    SPD --> SENDER: OK
-    deactivate SPD
-    SENDER -> SPD: SEND RTP
-    note right of SPD: See diagram: RTP Create Flow
-    activate SPD
-    SPD --> SENDER: OK
-    deactivate SPD
+    SENDER -> SENDER: UPDATE RTP
+    note right of SENDER
+      See diagram: RTP Update Flow
+    end note
 
 else DELETE
-    SENDER -> SPD: CANCEL RTP (RFC)
-    note right of SPD: See diagram: RTP RFC Flow
-    activate SPD
-    SPD --> SENDER: OK
-    deactivate SPD
+    SENDER -> SENDER: DELETE RTP
+    note right of SENDER
+      See diagram: RTP RFC Flow
+    end note
 end
+
 
 deactivate SENDER
 
