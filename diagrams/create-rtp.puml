@@ -14,7 +14,7 @@ participant "MS-ACTIVATOR" as GR
 database "RTPS" as SRTP
 database "Service Registry\n(BLOB)" as SR
 participant "CBI" as CBI
-participant "SPD" as SPD
+participant "DSP" as DSP
 
 autonumber
 
@@ -49,10 +49,10 @@ alt payer activated
         deactivate CBI
     end
 
-    SENDER -> SPD: POST /sepa-request-to-pay
-    activate SPD
-    SPD --> SENDER: 202 accepted
-    deactivate SPD
+    SENDER -> DSP: POST /sepa-request-to-pay
+    activate DSP
+    DSP --> SENDER: 202 accepted
+    deactivate DSP
 
     SENDER -> SRTP: save RTP (SENT)
     activate SRTP
