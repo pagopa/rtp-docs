@@ -1,90 +1,40 @@
 @startuml
-' PlantUML Diagram for RTP Send API
-' Title: Detailed RTP Send Sequence Diagram
-' Version: 1.0.0
-' Description: This diagram shows the detailed internal process for creating 
-'              and sending a new RTP from a pagoPa notice.
-
 !theme materia
 
-title RTP Send API: Detailed Flow
+title RTP Send Flow
 
-actor "User Agent" as UA
-participant "Pagopa - SP Creditore" as SPC
-participant "Gestore Repository" as GR
-database "Payer" as Payer
-database "SRTP" as SRTP
-database "Service Registry" as SR
-participant "CBI" as SPD
+participant "RTP-CONSUMER" as CONSUMER
+participant "MS-SENDER" as SENDER
 
 autonumber
 
-UA -> SPC: POST /rtps
-note left: access token
-activate SPC
+CONSUMER -> SENDER: POST /gpd/message
+activate SENDER
 
-SPC -> GR: GET /activations/payer
-activate GR
-GR -> Payer: findByPayerId
-activate Payer
-Payer --> GR
-deactivate Payer
+SENDER -> SENDER: validate payload
 
-alt user activated
-    GR --> SPC: payer and its Service Provider
-    deactivate GR
+SENDER -> SENDER: determine operation type\n(CREATE, UPDATE, DELETE)
 
-    SPC -> GR: getRegistryData
-    note left: Search key: ID Payer SP
-    activate GR
-    GR -> SR
-    activate SR
-    SR --> GR: Service Provider data
-    note right: service_endpoint, oauth2
-    deactivate SR
-    GR --> SPC: Service Provider data
-    deactivate GR
+alt CREATE
+    SENDER -> SENDER: CREATE RTP
+    note right of SENDER
+      See diagram: RTP Create Flow
+    end note
 
-    alt Service Provider is CBI
-        SPC -> SPC: add activation data to EPC payload
+else UPDATE
+    SENDER -> SENDER: UPDATE RTP
+    note right of SENDER
+      See diagram: RTP Update Flow
+    end note
 
-        SPC -> SRTP: save RTP in status CREATED
-        activate SRTP
-        SRTP --> SPC: created
-        deactivate SRTP
-
-        SPC <-> SPD: oAuth2
-        activate SPD
-
-        SPC -> SPD: POST /sepa-request-to-pay
-        note left: oAuth2
-        SPD --> SPC: 202 accepted
-        deactivate SPD
-
-        SPC -> SRTP: save RTP in status SENT
-        activate SRTP
-        SRTP --> SPC: updated
-        deactivate SRTP
-
-        SPC --> UA: 201 created
-
-    else Service Provider is not CBI
-        SPC -> SRTP: save RTP in status SENT
-        activate SRTP
-        SRTP --> SPC: updated
-        deactivate SRTP
-
-        SPC --> UA: 201 created
-        note right: Mocked during CBI integration
-    end
-
-else user not activated
-    activate GR
-    GR --> SPC: 404 not found
-    deactivate GR
-    SPC --> UA: 422 unprocessable entity
+else DELETE
+    SENDER -> SENDER: DELETE RTP
+    note right of SENDER
+      See diagram: RTP RFC Flow
+    end note
 end
 
-deactivate SPC
+
+deactivate SENDER
 
 @enduml
