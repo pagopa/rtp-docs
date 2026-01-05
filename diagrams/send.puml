@@ -1,91 +1,69 @@
 @startuml
 ' PlantUML Diagram for RTP Send API
 ' Title: Detailed RTP Send Sequence Diagram
-' Version: 1.0.0
-' Description: This diagram shows the detailed internal process for creating 
-'              and sending a new RTP from a pagoPa notice.
+' Version: 2.0.0
+' Description: This diagram shows the detailed internal process for sending
+'              an RTP after GDP operation validation.
 
 !theme materia
 
-title RTP Send API: Detailed Flow
+title RTP Send Flow
 
-boundary "MS-RTP-CONSUMER" as RTPC
-
-participant "Pagopa - SP Creditore" as SPC
-participant "Gestore Repository" as GR
-database "Payer" as Payer
-database "SRTP" as SRTP
-database "Service Registry" as SR
-participant "CBI" as SPD
+participant "MS-SENDER" as SENDER
+participant "MS-ACTIVATOR" as GR
+database "RTPS" as SRTP
+database "Service Registry\n(BLOB)" as SR
+participant "CBI" as CBI
+participant "SPD" as SPD
 
 autonumber
 
-RTPC -> SPC: POST /rtps
-note left: access token
-activate SPC
+[o-> SENDER: GDP SEND event
 
-SPC -> GR: GET /activations/payer
+SENDER -> GR: GET /activations/payer
+activate SENDER
 activate GR
-GR -> Payer: findByPayerId
-activate Payer
-Payer --> GR
-deactivate Payer
 
-alt user activated
-    GR --> SPC: payer and its Service Provider
+alt payer activated
+    GR --> SENDER: payer + serviceProvider
     deactivate GR
 
-    SPC -> GR: getRegistryData
-    note left: Search key: ID Payer SP
-    activate GR
-    GR -> SR
+
+    SENDER -> SR: getRegistryData
     activate SR
-    SR --> GR: Service Provider data
-    note right: service_endpoint, oauth2
+    note left: Search key: payerId + serviceProvider
+    SR --> SENDER: Service Provider data
     deactivate SR
-    GR --> SPC: Service Provider data
-    deactivate GR
 
-    alt Service Provider is CBI
-        SPC -> SPC: add activation data to EPC payload
+    SENDER -> SENDER: add activation data to EPC payload
 
-        SPC -> SRTP: save RTP in status CREATED
-        activate SRTP
-        SRTP --> SPC: created
-        deactivate SRTP
+    SENDER -> SRTP: save RTP (CREATED)
+    activate SRTP
+    SRTP --> SENDER: created
+    deactivate SRTP
 
-        SPC <-> SPD: oAuth2
-        activate SPD
-
-        SPC -> SPD: POST /sepa-request-to-pay
-        note left: oAuth2
-        SPD --> SPC: 202 accepted
-        deactivate SPD
-
-        SPC -> SRTP: save RTP in status SENT
-        activate SRTP
-        SRTP --> SPC: updated
-        deactivate SRTP
-
-        SPC --> UA: 201 created
-
-    else Service Provider is not CBI
-        SPC -> SRTP: save RTP in status SENT
-        activate SRTP
-        SRTP --> SPC: updated
-        deactivate SRTP
-
-        SPC --> UA: 201 created
-        note right: Mocked during CBI integration
+    alt flag oAuth2 == true
+        SENDER -> CBI: OAuth2 token exchange
+        activate CBI
+        CBI --> SENDER: 200 received access token
+        deactivate CBI
     end
 
-else user not activated
-    activate GR
-    GR --> SPC: 404 not found
-    deactivate GR
-    SPC --> UA: 422 unprocessable entity
+    SENDER -> SPD: POST /sepa-request-to-pay
+    activate SPD
+    SPD --> SENDER: 202 accepted
+    deactivate SPD
+
+    SENDER -> SRTP: save RTP (SENT)
+    activate SRTP
+    SRTP --> SENDER: updated
+    deactivate SRTP
+
+else payer not activated
+    GR --> SENDER: not found
 end
 
-deactivate SPC
+
+deactivate SENDER
 
 @enduml
