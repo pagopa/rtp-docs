@@ -1,0 +1,69 @@
+@startuml
+' PlantUML Diagram for RTP Send API
+' Title: Detailed RTP Send Sequence Diagram
+' Version: 2.0.0
+' Description: This diagram shows the detailed internal process for sending
+'              an RTP after GDP operation validation.
+
+!theme materia
+
+title RTP Create Flow
+
+participant "MS-SENDER" as SENDER
+participant "MS-ACTIVATOR" as GR
+database "RTPS" as SRTP
+database "Service Registry\n(BLOB)" as SR
+participant "CBI" as CBI
+participant "SPD" as SPD
+
+autonumber
+
+[o-> SENDER: GDP SEND event
+
+SENDER -> GR: GET /activations/payer
+activate SENDER
+activate GR
+
+alt payer activated
+    GR --> SENDER: payer + serviceProvider
+    deactivate GR
+
+
+    SENDER -> SR: getRegistryData
+    activate SR
+    note left: Search key: payerId + serviceProvider
+    SR --> SENDER: Service Provider data
+    deactivate SR
+
+    SENDER -> SENDER: add activation data to EPC payload
+
+    SENDER -> SRTP: save RTP (CREATED)
+    activate SRTP
+    SRTP --> SENDER: created
+    deactivate SRTP
+
+    alt flag oAuth2 == true
+        SENDER -> CBI: OAuth2 token exchange
+        activate CBI
+        CBI --> SENDER: 200 received access token
+        deactivate CBI
+    end
+
+    SENDER -> SPD: POST /sepa-request-to-pay
+    activate SPD
+    SPD --> SENDER: 202 accepted
+    deactivate SPD
+
+    SENDER -> SRTP: save RTP (SENT)
+    activate SRTP
+    SRTP --> SENDER: updated
+    deactivate SRTP
+
+else payer not activated
+    GR --> SENDER: not found
+end
+
+
+deactivate SENDER
+
+@enduml

@@ -23,6 +23,8 @@ Add a new diagram it's easy, you just need to insert the .puml file under the di
     ├── rtp-state-diagram.puml
     ├── rtp-state-diagram.svg
     ├── send.puml
-    └── send.svg
+    ├── send.svg
+    ├── create-rtp.puml
+    └── create-rtp.svg
 ```
 
