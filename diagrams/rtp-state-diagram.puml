@@ -1,6 +1,6 @@
 @startuml
 skin rose
-title RTP State Diagram - Updated with RFC Flow
+title RTP State Diagram
 
 state CREATED
 state SENT
