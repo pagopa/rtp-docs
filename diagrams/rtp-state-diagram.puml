@@ -4,7 +4,7 @@ title RTP State Diagram - Updated with RFC Flow
 
 state CREATED
 state SENT
-state RFC_SENT #LightBlue
+state RFC_SENT 
 
 state "Error statuses" as ES {
     state ERROR_SEND
@@ -38,6 +38,7 @@ SENT --> RS : REJECT_RTP
 SENT --> AS : USER_ACCEPT_RTP
 SENT --> RS : USER_REJECT_RTP
 SENT --> PAID : PAY_RTP
+AS --> PAID : PAY_RTP
 
 ' Nuovo Flusso RFC
 SENT --> RFC_SENT : CANCEL_RTP
