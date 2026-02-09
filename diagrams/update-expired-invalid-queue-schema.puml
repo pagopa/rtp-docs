@@ -35,27 +35,35 @@ alt **RTP exists**
   end note
 
   alt **Status is valid**
+    SPC -> SPC: **Set RTP status to RFC_SENT (initial)**
+    note right: Cancellation request initiated
+    activate SPC_DB
+    SPC -> SRTP: **Save RTP with RFC_SENT status**
+    activate SRTP
+    SRTP --> SPC: **Saved RTP**
+    deactivate SRTP
+
     SPC -> SPD: **POST /sepa-request-to-pay-requests/{id}/cancellation-requests**
     note right: Send **cancellation request** to SP Debtor
     activate SPD
 
-    alt **SP Debtor accepts cancellation request**
-      SPD --> SPC: **201 Created / Success**
-
+    alt **Async flow EPC**
+      SPD --> SPC: **OK empty Body**
+      SPC -> SPC: **Set RTP status to RFC_SENT**
+      SPC -> SRTP: **Save RTP with RFC_SENT status**
+      activate SRTP
+      SRTP --> SPC: **Saved RTP**
+      deactivate SRTP
+    else **Sync flow EPC**
+      SPD --> SPC: **OK payload**
       SPC -> SPC: **Set RTP status to CANCELLED**
-      note right: Cancellation process initiated
-
       SPC -> SRTP: **Save RTP with CANCELLED status**
       activate SRTP
       SRTP --> SPC: **Saved RTP**
       deactivate SRTP
-
-    else **SP Debtor rejects or call fails**
+    else **Error Sync Response**
       SPD --> SPC: **Error response (e.g., 4xx, 5xx)**
-      note right: Cancellation failed during communication
-
       SPC -> SPC: **Set RTP status to ERROR_CANCEL**
-
       SPC -> SRTP: **Save RTP with ERROR_CANCEL status**
       activate SRTP
       SRTP --> SPC: **Saved RTP**
@@ -63,6 +71,7 @@ alt **RTP exists**
     end
 
     deactivate SPD
+    deactivate SPC_DB
     SPC --> Consumer: **Outcome processed**
 
   else **Invalid RTP status for cancellation**

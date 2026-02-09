@@ -35,21 +35,44 @@ alt **Operation == UPDATE and Status == VALID**
       SRTP --> SPC: **RTP**
       deactivate SRTP
 
+      SPC -> SPC: **Set RTP status to RFC_SENT (initial)**
+      note right: **Cancellation request initiated**
+      SPC -> SRTP: **Save RTP with RFC_SENT status**
+      activate SRTP
+      SRTP --> SPC: **Saved RTP**
+      deactivate SRTP
+
       SPC -> SPD: **POST /sepa-request-to-pay-requests/{id}/cancellation-requests**
       note right: **Send cancellation request to SP Debitore**
       activate SPD
 
-      alt **SP Debitor accepts**
-        SPD --> SPC: **201 Created**
-        deactivate SPD
-
+      alt **Async flow EPC**
+        SPD --> SPC: **OK empty Body**
+        SPC -> SPC: **Set RTP status to RFC_SENT**
+        SPC -> SRTP: **Save RTP with RFC_SENT status**
+        activate SRTP
+        SRTP --> SPC: **Saved RTP**
+        deactivate SRTP
+      else **Sync flow EPC**
+        SPD --> SPC: **OK payload**
         SPC -> SPC: **Set RTP status to CANCELLED**
-
         SPC -> SRTP: **Save RTP with CANCELLED status**
         activate SRTP
         SRTP --> SPC: **Saved RTP**
         deactivate SRTP
 
+      else **Error Sync Response**
+        SPD --> SPC: **Error response**
+        SPC -> SPC: **Set RTP status to ERROR_CANCEL**
+        SPC -> SRTP: **Save RTP with ERROR_CANCEL status**
+        activate SRTP
+        SRTP --> SPC: **Saved RTP**
+        deactivate SRTP
+      end
+
+      deactivate SPD
+
+      alt **RTP status is CANCELLED or CANCELLED with RFC**
         SPC -> SPD: **POST /sepa-request-to-pay**
         note right: **Send RTP to SP Debitore**
         activate SPD
@@ -78,17 +101,8 @@ alt **Operation == UPDATE and Status == VALID**
           deactivate SRTP
         end
 
-      else **SP Debitor rejects**
-        SPD --> SPC: **Error response**
-        deactivate SPD
-        note right: **Based on SP Debitore response**
-
-        SPC -> SPC: **Set RTP status to ERROR_CANCEL**
-
-        SPC -> SRTP: **Save RTP with ERROR_CANCEL status**
-        activate SRTP
-        SRTP --> SPC: **Saved RTP**
-        deactivate SRTP
+      else **Cancellation not possible or already final state**
+        SPC -> Consumer: **Skip to next operation**
       end
 
       SPC --> Consumer: **Updated RTP**

@@ -21,23 +21,34 @@ activate DB
 alt RTP exists
     DB --> Service: return RTP
     
+    Service -> Service: setStatus("RFC_SENT")
+    note right: Cancellation request initiated
+    Service -> DB: saveRtp(rtp)
+    DB --> Service: saveConfirmation
+    
     Service -> SPDAPI: POST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
     note right: Send cancellation request to SP Debtor
     activate SPDAPI
     
-    alt SP Debtor accepts cancellation
-        SPDAPI --> Service: 201 Created (Cancellation accepted)
-        
-        Service -> Service: setStatus("CANCELED")
+    alt Async flow EPC
+        SPDAPI --> Service: OK empty Body
+        Service -> Service: setStatus("RFC_SENT")
         Service -> DB: saveRtp(rtp)
         DB --> Service: saveConfirmation
-        Service --> Consumer: Cancellation completed
-    else SP Debtor rejects cancellation
+    else Sync flow EPC
+        SPDAPI --> Service: OK payload
+        Service -> Service: setStatus("CANCELLED")
+        Service -> DB: saveRtp(rtp)
+        DB --> Service: saveConfirmation
+    else Error Sync Response
         SPDAPI --> Service: Error response
-        Service --> Consumer: Cancellation rejected
+        Service -> Service: setStatus("ERROR_CANCEL")
+        Service -> DB: saveRtp(rtp)
+        DB --> Service: saveConfirmation
     end
     
     deactivate SPDAPI
+    Service --> Consumer: Cancellation processed
     
 else RTP not found
     DB --> Service: return null
