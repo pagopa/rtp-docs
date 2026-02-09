@@ -1,9 +1,9 @@
 @startuml
-' PlantUML Diagram for RTP Send API
-' Title: Detailed RTP Send Sequence Diagram
-' Version: 2.0.0
-' Description: This diagram shows the detailed internal process for sending
-'              an RTP after GDP operation validation.
+' PlantUML Diagram for RTP Cancellation API
+' Title: Unified RTP Cancellation Sequence Diagram
+' Version: 1.0.0
+' Description: This diagram shows the detailed process for cancelling an RTP,
+'              mixing the API specification with the actual Java service and controller logic.
 
 !theme materia
 
