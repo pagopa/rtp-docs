@@ -28,19 +28,13 @@ alt **Operation == UPDATE and Status == VALID**
   end note
 
   alt **RTP status is valid**
-    SPC -> SRTP: **findRtpByCompositeKey**
+    SPC -> SRTP: **findRtpByOperationDispatcherKey**
     activate SRTP
 
     alt **RTP exists**
       SRTP --> SPC: **RTP**
       deactivate SRTP
 
-      SPC -> SPC: **Set RTP status to RFC_SENT (initial)**
-      note right: **Cancellation request initiated**
-      SPC -> SRTP: **Save RTP with RFC_SENT status**
-      activate SRTP
-      SRTP --> SPC: **Saved RTP**
-      deactivate SRTP
 
       SPC -> SPD: **POST /sepa-request-to-pay-requests/{id}/cancellation-requests**
       note right: **Send cancellation request to SP Debitore**

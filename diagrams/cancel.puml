@@ -25,7 +25,6 @@ alt RTP Found
     SRTP --> SENDER: RTP Found
     deactivate SRTP
     SENDER -> SENDER: validate RTP status
-    SENDER -> SENDER: update RTP status (RFC_SENT)
     note right: Cancellation request initiated
     SENDER -> DSP: Send request of cancellation\nPOST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
     activate DSP

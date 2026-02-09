@@ -21,7 +21,6 @@ activate DB
 alt RTP exists
     DB --> Service: return RTP
     
-    Service -> Service: setStatus("RFC_SENT")
     note right: Cancellation request initiated
     Service -> DB: saveRtp(rtp)
     DB --> Service: saveConfirmation
