@@ -37,7 +37,6 @@ alt #palegreen **Success case: RTP delivered**
     RS -> RS: Evaluate status (SENT)
 
     RS --> SP: **200 OK**\nResponse: "RTP delivered"\nprocessingDate: {savingDateTime}
-    deactivate RS
 
 else #lightyellow **Fail case: RTP not delivered**
 
@@ -53,7 +52,6 @@ else #lightyellow **Fail case: RTP not delivered**
     end note
 
     RS --> SP: **404 Not Found**\nResponse: "RTP not delivered"
-    deactivate RS
 
 else #darkred **Other Errors**
 
@@ -70,8 +68,8 @@ else #darkred **Other Errors**
          RS --> SP: **500 Internal Server Error**
     end group
 
-    deactivate RS
-
 end
+
+deactivate RS
 
 @enduml
