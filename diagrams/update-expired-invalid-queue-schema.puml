@@ -35,12 +35,9 @@ alt **RTP exists**
   end note
 
   alt **Status is valid**
-    SPC -> SPC: **Set RTP status to RFC_SENT (initial)**
     note right: Cancellation request initiated
     activate SPC_DB
-    SPC -> SRTP: **Save RTP with RFC_SENT status**
     activate SRTP
-    SRTP --> SPC: **Saved RTP**
     deactivate SRTP
 
     SPC -> SPD: **POST /sepa-request-to-pay-requests/{id}/cancellation-requests**
