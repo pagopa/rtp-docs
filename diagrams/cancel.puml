@@ -7,109 +7,50 @@
 
 !theme materia
 
-title RTP Cancellation API: POST /rtps/{rtpId}/cancellation
+title RTP Delete Flow
 
-actor "**Payer's Service Provider**" as PSP
-participant "**RTP Service\n(API/Controller)**" as AS
-participant "**Send RTP Service\n(Business Logic)**" as SS
-participant "**RTP Status Updater**" as SU
-database "**Database**" as DB
-queue "**SP Debtor System**" as SP_Debtor
+participant "MS-SENDER" as SENDER
+database "RTPS" as SRTP
+participant "DSP" as DSP
 
-autonumber "<b>[0]"
+autonumber
 
-PSP -> AS: **POST** /rtps/{rtpId}/cancellation
-activate AS
+[o-> SENDER: GDP DELETE event
 
-AS -> AS: **Security & Role Check**
-note right of AS: Framework validates token & user role.\nCorresponds to `@PreAuthorize("hasRole('write_rtp_send')")`.
+activate SENDER
+SENDER -> SRTP: findRtpByOperationDispatcherKey
+  activate SRTP
 
-AS -> SS: `cancelRtpById(rtpId)`
-activate SS
-note right of AS: Controller delegates to the service layer.
-
-SS -> DB: findById(rtpId)
-activate DB
-note right of SS: Service must first retrieve the RTP to cancel.
-
-alt #palegreen **Success Case: Cancellation Sent**
-
-    DB --> SS: Rtp record found
-    deactivate DB
-
-    SS -> SU: `canCancel(Rtp)`
-    activate SU
-    note right of SS: Service checks if the RTP is in a cancellable state.
-    SU --> SS: `true`
-    deactivate SU
-
-    SS -> SS: Map Rtp to SEPA cancel request
-    note right: As per `sepaRequestToPayMapper.toEpcRequestToCancel(...)`
-
-    SS -> SP_Debtor: Send RTP Cancellation Message
-    note right: As per `sendRtpCancellationToServiceProviderDebtor(...)`
-
-    SS --> AS: `Mono<Rtp>`
-    deactivate SS
-
-    AS -> AS: Map result to final response
-    AS --> PSP: **204 No Content**
-    note left of PSP
-        The cancellation request was successfully
-        processed and sent.
+alt RTP Found
+    SRTP --> SENDER: RTP Found
+    deactivate SRTP
+    SENDER -> SENDER: validate RTP status
+    note right: Cancellation request initiated
+    SENDER -> DSP: Send request of cancellation\nPOST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
+    activate DSP
+    note left of DSP
+      Retry if failed
     end note
 
-else #lightyellow **Error: Unprocessable Entity**
+    alt Async flow EPC
+      DSP --> SENDER: OK empty Body
+      SENDER -> SENDER: update RTP status (RFC_SENT)
+    else Sync flow EPC
+      DSP --> SENDER: OK payload
+      SENDER -> SENDER: update RTP status (CANCELLED)
+    else Error Sync Response
+      DSP --> SENDER: Error
+      SENDER -> SENDER: update RTP status (ERROR_CANCEL)
+    deactivate DSP
+    end Error RFC
 
-    DB --> SS: Rtp record found
-    deactivate DB
 
-    SS -> SU: `canCancel(Rtp)`
-    activate SU
-    SU --> SS: `false`
-    deactivate SU
 
-    SS -> SS: Throw `IllegalStateException`
-    note right of SS: As per `.switchIfEmpty(...)` check on status.
-
-    SS --> AS: Error: `IllegalStateException`
-    deactivate SS
-
-    AS -> AS: Handle `IllegalStateException`
-    note right of AS: As per `.onErrorReturn(IllegalStateException.class, ...)`
-
-    AS --> PSP: **422 Unprocessable Entity**
-    note left of PSP: The RTP is not in a state that allows cancellation.
-
-else #orange **Error: Not Found**
-
-    DB --> SS: empty
-    deactivate DB
-
-    SS -> SS: Throw `RtpNotFoundException`
-    SS --> AS: Error: `RtpNotFoundException`
-    deactivate SS
-
-    AS -> AS: Handle `RtpNotFoundException`
-    note right of AS: As per `.onErrorReturn(RtpNotFoundException.class, ...)`
-
-    AS --> PSP: **404 Not Found**
-    note left of PSP: The specified RTP could not be found.
-
-else #darkred **Other Errors**
-
-    deactivate SS
-    group Authentication / Authorization
-        AS --> PSP: **401 Unauthorized** / **403 Forbidden**
-        note right of AS: Occurs if the initial `@PreAuthorize` check fails.
-    end group
-
-    group Server-Side Error
-        AS --> PSP: **500 Internal Server Error**
-    end group
-
+else RTP Not Found
+    SRTP --> SENDER: not found
 end
 
-deactivate AS
+
+deactivate SENDER
 
 @enduml
