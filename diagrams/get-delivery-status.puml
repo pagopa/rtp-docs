@@ -1,13 +1,13 @@
 @startuml
-' PlantUML Diagram for RTP Notice Status API
-' Title: RTP Notice Status Sequence Diagram
+' PlantUML Diagram for GET Delivery Status API
+' Title: RTP Delivery Status Sequence Diagram
 ' Version: 1.0.0
-' Description: GET /noticeNumber/{payeeId}
+' Description: GET /rtps/delivery-status?noticeNumber={nav}&payeeId={payeeId}
 '              Returns delivery status + RTP processing date (send date)
 
 !theme materia
 
-title RTP Notice Status API: GET /noticeNumber/{payeeId}
+title RTP Notice Status API: GET /rtps/delivery-status?noticeNumber={nav}&payeeId={payeeId}
 
 actor "**Service Provider**" as SP
 participant "**rtp-sender**" as RS
@@ -15,11 +15,11 @@ database "**Database**" as DB
 
 autonumber "<b>[0]"
 
-SP -> RS: **GET** /noticeNumber/{payeeId}
+SP -> RS: **GET** /rtps/delivery-status?noticeNumber={nav}&payeeId={payeeId}
 activate RS
 
 note right of RS
-  **Operation:** `getNoticeStatus`
+  **Operation:** `getDeliveryStatus`
   The SP queries delivery status for a noticeNumber
   filtered by payeeId.
 end note
@@ -34,24 +34,9 @@ alt #palegreen **Success case: RTP delivered**
     deactivate DB
 
     RS -> RS: Filter results by payeeId
-    RS -> RS: Evaluate status (SENT)
+    RS -> RS: Evaluate status (SENT/ERROR_SEND)
 
-    RS --> SP: **200 OK**\nResponse: "RTP delivered"\nprocessingDate: {savingDateTime}
-
-else #lightyellow **Fail case: RTP not delivered**
-
-    RS -> DB: findRtpByNoticeNumber(noticeNumber)
-    activate DB
-    DB --> RS: empty OR status ERROR_SEND
-    deactivate DB
-
-    note right of RS
-      Treat as RTP not delivered:
-      - noticeNumber not found
-      - status ERROR_SEND
-    end note
-
-    RS --> SP: **404 Not Found**\nResponse: "RTP not delivered"
+    RS --> SP: **200 OK**\nResponse: "PD RTP delivered/PD not delivered"\nprocessingDate: {savingDateTime}
 
 else #darkred **Other Errors**
 
