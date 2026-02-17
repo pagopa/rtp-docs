@@ -1,0 +1,60 @@
+@startuml
+' PlantUML Diagram for GET Delivery Status API
+' Title: RTP Delivery Status Sequence Diagram
+' Version: 1.0.0
+' Description: GET /rtps/delivery-status?noticeNumber={nav}&payeeId={payeeId}
+'              Returns delivery status + RTP processing date (send date)
+
+!theme materia
+
+title RTP Notice Status API: GET /rtps/delivery-status?noticeNumber={nav}&payeeId={payeeId}
+
+actor "**Service Provider**" as SP
+participant "**rtp-sender**" as RS
+database "**Database**" as DB
+
+autonumber "<b>[0]"
+
+SP -> RS: **GET** /rtps/delivery-status?noticeNumber={nav}&payeeId={payeeId}
+activate RS
+
+note right of RS
+  **Operation:** `getDeliveryStatus`
+  The SP queries delivery status for a noticeNumber
+  filtered by payeeId.
+end note
+
+RS -> RS: Validate Security Token
+
+alt #palegreen **Success case: RTP delivered**
+
+    RS -> DB: findRtpByNoticeNumber(noticeNumber)
+    activate DB
+    DB --> RS: results (0..n)
+    deactivate DB
+
+    RS -> RS: Filter results by payeeId
+    RS -> RS: Evaluate status (SENT/ERROR_SEND)
+
+    RS --> SP: **200 OK**\nResponse: "PD RTP delivered/PD not delivered"\nprocessingDate: {savingDateTime}
+
+else #darkred **Other Errors**
+
+    group Client-Side Errors
+        RS --> SP: **400 Bad Request**\n(e.g., Invalid fiscal code, missing fields)
+        RS --> SP: **401 Unauthorized**\n(e.g., Invalid or expired security token)
+        RS --> SP: **403 Forbidden**\n(e.g., Insufficient permissions)
+        RS --> SP: **429 Too Many Requests**\n(e.g., Rate limit exceeded)
+    end group
+
+    group Server-Side Error
+         note over RS: e.g., Database connection failure, unhandled exception.
+         RS -> RS: An unexpected internal error occurs
+         RS --> SP: **500 Internal Server Error**
+    end group
+
+end
+
+deactivate RS
+
+@enduml
