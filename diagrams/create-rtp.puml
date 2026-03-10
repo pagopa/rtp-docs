@@ -10,6 +10,7 @@
 title RTP Create Flow
 
 participant "MS-SENDER" as SENDER
+database "Redis\n(Idempotency Key Store)" as REDIS
 participant "MS-ACTIVATOR" as GR
 database "RTPS" as SRTP
 database "Service Registry\n(BLOB)" as SR
@@ -18,51 +19,67 @@ participant "DSP" as DSP
 
 autonumber
 
-[o-> SENDER: GDP SEND event
+[o-> SENDER: GDP CREATE event
 
-SENDER -> GR: GET /activations/payer
 activate SENDER
-activate GR
 
-alt payer activated
-    GR --> SENDER: payer + serviceProvider
-    deactivate GR
+SENDER -> REDIS: check Idempotency-Key
+activate REDIS
 
+alt Idempotency-Key already present
+    REDIS --> SENDER: key found
+    deactivate REDIS
+    SENDER -> SENDER: discard duplicated message
+    note right: Message already processed\nor already in processing
 
-    SENDER -> SR: getRegistryData
-    activate SR
-    note left: Search key: payerId + serviceProvider
-    SR --> SENDER: Service Provider data
-    deactivate SR
+else Idempotency-Key not present
+    REDIS --> SENDER: key not found
+    SENDER -> REDIS: save Idempotency-Key
+    REDIS --> SENDER: key saved
+    deactivate REDIS
 
-    SENDER -> SENDER: add activation data to EPC payload
+    SENDER -> GR: GET /activations/payer
+    activate GR
 
-    SENDER -> SRTP: save RTP (CREATED)
-    activate SRTP
-    SRTP --> SENDER: created
-    deactivate SRTP
+    alt payer activated
+        GR --> SENDER: payer + serviceProvider
+        deactivate GR
 
-    alt flag oAuth2 == true
-        SENDER -> CBI: OAuth2 token exchange
-        activate CBI
-        CBI --> SENDER: 200 received access token
-        deactivate CBI
+        SENDER -> SR: getRegistryData
+        activate SR
+        note left: Search key: payerId + serviceProvider
+        SR --> SENDER: Service Provider data
+        deactivate SR
+
+        SENDER -> SENDER: add activation data to EPC payload
+
+        SENDER -> SRTP: save RTP (CREATED)
+        activate SRTP
+        SRTP --> SENDER: created
+        deactivate SRTP
+
+        alt flag oAuth2 == true
+            SENDER -> CBI: OAuth2 token exchange
+            activate CBI
+            CBI --> SENDER: 200 received access token
+            deactivate CBI
+        end
+
+        SENDER -> DSP: POST /sepa-request-to-pay
+        activate DSP
+        DSP --> SENDER: 202 accepted
+        deactivate DSP
+
+        SENDER -> SRTP: save RTP (SENT)
+        activate SRTP
+        SRTP --> SENDER: updated
+        deactivate SRTP
+
+    else payer not activated
+        GR --> SENDER: not found
+        deactivate GR
     end
-
-    SENDER -> DSP: POST /sepa-request-to-pay
-    activate DSP
-    DSP --> SENDER: 202 accepted
-    deactivate DSP
-
-    SENDER -> SRTP: save RTP (SENT)
-    activate SRTP
-    SRTP --> SENDER: updated
-    deactivate SRTP
-
-else payer not activated
-    GR --> SENDER: not found
 end
-
 
 deactivate SENDER
 
