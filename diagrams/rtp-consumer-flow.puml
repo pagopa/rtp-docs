@@ -14,7 +14,7 @@ C -> C : Validate payload
 
 alt Validation OK
 
-  C -> C : Generate Idempotency-Key\nfrom payload
+  C -> C : Compute Idempotency-Key\nfrom payload
 
   C -> MA : POST /token
   activate MA
