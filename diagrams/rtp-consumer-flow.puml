@@ -13,12 +13,15 @@ activate C
 C -> C : Validate payload
 
 alt Validation OK
+
+  C -> C : Compute Idempotency-Key\nfrom payload
+
   C -> MA : POST /token
   activate MA
   MA --> C : 200 OK (token)
   deactivate MA
 
-  C -> S : POST /gpd/message (payload + token)
+  C -> S : POST /gpd/message (payload + token + Idempotency-Key)
   activate S
 
   alt POST OK

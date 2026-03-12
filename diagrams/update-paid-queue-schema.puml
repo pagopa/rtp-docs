@@ -1,93 +1,130 @@
 @startuml
-skin rose
-title GDP Message - **UPDATE PAID** Flow
 
-queue "GDP Event Hub" as Queue
-participant "GDP Message Consumer" as Consumer
-participant "SP Creditore" as SPC
+!theme materia
+
+title RTP Update Flow (PAID)
+
+participant "MS-CONSUMER" as CONSUMER
+participant "MS-SENDER" as SENDER
+database "Redis\n(Idempotency Key Store)" as REDIS
 database "SRTP" as SRTP
 database "Service Registry" as Registry
 participant "SP Debitore" as SPD
 
-Queue -> Consumer: **GDP Message**
-note left: **Status = PAID**
+autonumber
 
-activate Consumer
-Consumer -> Consumer: **Check message operation**
-alt **Operation == UPDATE** and **Status == PAID**
-  Consumer -> SPC: **Process UPDATE PAID operation**
-  activate SPC
+CONSUMER -> SENDER: Forward GDP UPDATE event\nHeaders: Idempotency-Key, RequestId
+note left
+  Operation = UPDATE
+  Status = PAID
+end note
 
-  SPC -> SRTP: **findRtpByCompositeKey**
-  activate SRTP
+activate SENDER
 
-  alt **RTP exists**
-    SRTP --> SPC: **RTP**
-    deactivate SRTP
+SENDER -> REDIS: Check Idempotency-Key
+activate REDIS
 
-    SPC -> SPC: **Check RTP status is valid**
-    note right
-      ✅ Valid RTP statuses:
-      - CREATED
-      - SENT
-      - ACCEPTED
-      - USER_ACCEPTED
-    end note
+alt Idempotency-Key already present
+  REDIS --> SENDER: Key found
+  deactivate REDIS
 
-    alt **Status is valid**
-      SPC -> Registry: **Get Service Providers by PSP Tax Code**
-      activate Registry
-      Registry --> SPC: **Service Provider**
-      deactivate Registry
+  SENDER -> SENDER: Discard duplicated message
+  note right of SENDER
+    Message already processed
+    or already in processing
+  end note
 
-      alt **PSP BIC matches** RTP.serviceProviderDebtor
-        SPC -> SRTP: **Save RTP with PAID status**
-        activate SRTP
-        SRTP --> SPC: **Saved RTP**
-        deactivate SRTP
+  SENDER --> CONSUMER: 409 Conflict
 
-      else **PSP BIC does NOT match** RTP.serviceProviderDebtor
-        SPC -> SPD: **POST /sepa-request-to-pay-requests/{id}/cancellation-requests**
-        note right: Send **cancellation request** to SP Debitor
-        activate SPD
+else Idempotency-Key not present
+  REDIS --> SENDER: Key not found
+  SENDER -> REDIS: Save Idempotency-Key
+  REDIS --> SENDER: Key saved
+  deactivate REDIS
 
-        alt **SP Debtor accepts**
-          SPD --> SPC: **201 Created**
+  SENDER -> SENDER: Check message operation
 
-          SPC -> SPC: **Set RTP status to CANCELLED_PAID**
+  alt Operation == UPDATE and Status == PAID
+    SENDER -> SRTP: findRtpByCompositeKey
+    activate SRTP
 
-          SPC -> SRTP: **Save RTP with CANCELLED_PAID status**
+    alt RTP exists
+      SRTP --> SENDER: RTP
+      deactivate SRTP
+
+      SENDER -> SENDER: Check RTP status is valid
+      note right of SENDER
+        Valid RTP statuses:
+        - CREATED
+        - SENT
+        - ACCEPTED
+        - USER_ACCEPTED
+      end note
+
+      alt Status is valid
+        SENDER -> Registry: Get Service Providers by PSP Tax Code
+        activate Registry
+        Registry --> SENDER: Service Provider
+        deactivate Registry
+
+        alt PSP BIC matches RTP.serviceProviderDebtor
+          SENDER -> SRTP: Save RTP (PAID)
           activate SRTP
-          SRTP --> SPC: **Saved RTP**
+          SRTP --> SENDER: Saved RTP
           deactivate SRTP
+          SENDER --> CONSUMER: 200 OK
 
-        else **SP Debtor rejects**
-          SPD --> SPC: **Error response**
-          note right: Based on SP Debitor response
+        else PSP BIC does NOT match RTP.serviceProviderDebtor
+          SENDER -> SPD: POST /sepa-request-to-pay-requests/{id}/cancellation-requests
+          note right of SPD
+            Send cancellation request
+            to SP Debtor
+          end note
+          activate SPD
 
-          SPC -> SPC: **Set RTP status to ERROR_CANCEL**
+          alt SP Debtor accepts
+            SPD --> SENDER: 201 Created
+            SENDER -> SENDER: Set RTP status CANCELLED_PAID
+            SENDER -> SRTP: Save RTP (CANCELLED_PAID)
+            activate SRTP
+            SRTP --> SENDER: Saved RTP
+            deactivate SRTP
+            SENDER --> CONSUMER: 200 OK
 
-          SPC -> SRTP: **Save RTP with ERROR_CANCEL status**
-          activate SRTP
-          SRTP --> SPC: **Saved RTP**
-          deactivate SRTP
+          else SP Debtor rejects
+            SPD --> SENDER: Error response
+            note right of SENDER
+              Based on SP Debtor response
+            end note
+            SENDER -> SENDER: Set RTP status ERROR_CANCEL
+            SENDER -> SRTP: Save RTP (ERROR_CANCEL)
+            activate SRTP
+            SRTP --> SENDER: Saved RTP
+            deactivate SRTP
+            SENDER --> CONSUMER: Error propagated
+          end
+
+          deactivate SPD
         end
+
+      else Invalid RTP status
+        SENDER --> CONSUMER: Error – Invalid RTP status
       end
 
-      SPC --> Consumer: **Updated RTP**
-
-    else **Invalid RTP status**
-      SPC --> Consumer: **Error – Invalid RTP status**
+    else RTP not found
+      SRTP --> SENDER: Not found
+      deactivate SRTP
+      SENDER --> CONSUMER: 404 Not Found
     end
 
-  else **RTP not found**
-    SPC --> Consumer: **Error – RTP not found**
+  else Different operation
+    SENDER -> SENDER: Skip message
+    note right of SENDER
+      Operation is not UPDATE PAID
+    end note
+    SENDER --> CONSUMER: No action
   end
-
-else **Different Operation**
-  SPC --> Consumer: **Not triggered**
-  note right: Operation is not **UPDATE PAID**
 end
 
-deactivate Consumer
+deactivate SENDER
 @enduml
