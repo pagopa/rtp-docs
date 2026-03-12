@@ -2,13 +2,12 @@
 ' PlantUML Diagram for RTP Send API
 ' Title: Detailed RTP Send Sequence Diagram
 ' Version: 2.0.0
-' Description: This diagram shows the detailed internal process for sending
-'              an RTP after GDP operation validation.
 
 !theme materia
 
 title RTP Create Flow
 
+participant "MS-CONSUMER" as CONSUMER
 participant "MS-SENDER" as SENDER
 database "Redis\n(Idempotency Key Store)" as REDIS
 participant "MS-ACTIVATOR" as GR
@@ -19,8 +18,7 @@ participant "DSP" as DSP
 
 autonumber
 
-[o-> SENDER: GDP CREATE event
-
+CONSUMER -> SENDER: CREATE RTP request\nHeaders: Idempotency-Key, RequestId\nPayload: RTP creation data
 activate SENDER
 
 SENDER -> REDIS: check Idempotency-Key
@@ -30,7 +28,12 @@ alt Idempotency-Key already present
     REDIS --> SENDER: key found
     deactivate REDIS
     SENDER -> SENDER: discard duplicated message
-    note right: Message already processed\nor already in processing
+    note right of SENDER
+      Duplicated message:
+      already processed
+      or already in processing
+    end note
+    SENDER --> CONSUMER: 409 Conflict
 
 else Idempotency-Key not present
     REDIS --> SENDER: key not found
@@ -47,7 +50,10 @@ else Idempotency-Key not present
 
         SENDER -> SR: getRegistryData
         activate SR
-        note left: Search key: payerId + serviceProvider
+        note left of SR
+          Search key:
+          payerId + serviceProvider
+        end note
         SR --> SENDER: Service Provider data
         deactivate SR
 
@@ -67,7 +73,7 @@ else Idempotency-Key not present
 
         SENDER -> DSP: POST /sepa-request-to-pay
         activate DSP
-        DSP --> SENDER: 202 accepted
+        DSP --> SENDER: 202 Accepted
         deactivate DSP
 
         SENDER -> SRTP: save RTP (SENT)
@@ -75,9 +81,12 @@ else Idempotency-Key not present
         SRTP --> SENDER: updated
         deactivate SRTP
 
+        SENDER --> CONSUMER: 201 Created
+
     else payer not activated
         GR --> SENDER: not found
         deactivate GR
+        SENDER --> CONSUMER: 404 Not Found
     end
 end
 

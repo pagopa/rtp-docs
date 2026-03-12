@@ -2,13 +2,12 @@
 ' PlantUML Diagram for RTP Cancellation API
 ' Title: Unified RTP Cancellation Sequence Diagram
 ' Version: 1.0.0
-' Description: This diagram shows the detailed process for cancelling an RTP,
-'              mixing the API specification with the actual Java service and controller logic.
 
 !theme materia
 
 title RTP Delete Flow
 
+participant "MS-CONSUMER" as CONSUMER
 participant "MS-SENDER" as SENDER
 database "Redis\n(Idempotency Key Store)" as REDIS
 database "RTPS" as SRTP
@@ -16,8 +15,7 @@ participant "DSP" as DSP
 
 autonumber
 
-[o-> SENDER: GDP DELETE event
-
+CONSUMER -> SENDER: DELETE RTP request\nHeaders: Idempotency-Key, RequestId\nPayload: RTP cancellation data
 activate SENDER
 
 SENDER -> REDIS: check Idempotency-Key
@@ -27,7 +25,13 @@ alt Idempotency-Key already present
     REDIS --> SENDER: key found
     deactivate REDIS
     SENDER -> SENDER: discard duplicated message
-    note right: Message already processed\nor already in processing
+    note right of SENDER
+      Duplicated message:
+      already processed
+      or already in processing
+    end note
+    SENDER --> CONSUMER: 409 Conflict
+
 else Idempotency-Key not present
     REDIS --> SENDER: key not found
     SENDER -> REDIS: save Idempotency-Key
@@ -42,23 +46,31 @@ else Idempotency-Key not present
         deactivate SRTP
 
         SENDER -> SENDER: validate RTP status
-        note right: Cancellation request initiated
+        note right of SENDER
+          Cancellation request initiated
+        end note
 
-        SENDER -> DSP: Send request of cancellation\nPOST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
+        SENDER -> DSP: Send cancellation request\nPOST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
         activate DSP
+
         note left of DSP
           Retry if failed
         end note
 
         alt Async flow EPC
-            DSP --> SENDER: OK empty Body
+            DSP --> SENDER: OK empty body
             SENDER -> SENDER: update RTP status (RFC_SENT)
+            SENDER --> CONSUMER: 204 No Content
+
         else Sync flow EPC
             DSP --> SENDER: OK payload
             SENDER -> SENDER: update RTP status (CANCELLED)
+            SENDER --> CONSUMER: 200 OK
+
         else Error Sync Response
             DSP --> SENDER: Error
             SENDER -> SENDER: update RTP status (ERROR_CANCEL)
+            SENDER --> CONSUMER: 4xx / business error
         end
 
         deactivate DSP
@@ -66,6 +78,7 @@ else Idempotency-Key not present
     else RTP Not Found
         SRTP --> SENDER: not found
         deactivate SRTP
+        SENDER --> CONSUMER: 404 Not Found
     end
 end
 

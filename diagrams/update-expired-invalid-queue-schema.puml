@@ -1,107 +1,110 @@
 @startuml
-skin rose
-title GDP Message - **UPDATE INVALID / EXPIRED** Flow
 
-queue "GDP Event Hub" as Queue
-participant "GDP Message Consumer" as Consumer
+!theme materia
+
+title RTP Update Flow (INVALID / EXPIRED)
+
+participant "MS-CONSUMER" as CONSUMER
+participant "MS-SENDER" as SENDER
 database "Redis\n(Idempotency Key Store)" as REDIS
-participant "SP Creditore" as SPC
 database "SRTP" as SRTP
 participant "SP Debitore" as SPD
 
-Queue -> Consumer: **GDP Message**
+autonumber
+
+CONSUMER -> SENDER: Forward GDP UPDATE event\nHeaders: Idempotency-Key, RequestId
 note left
-  **Operation = UPDATE**
-  **Status = INVALID** or **EXPIRED**
+  Operation = UPDATE
+  Status = INVALID or EXPIRED
 end note
 
-activate Consumer
+activate SENDER
 
-Consumer -> REDIS: **Check Idempotency-Key**
+SENDER -> REDIS: Check Idempotency-Key
 activate REDIS
 
-alt **Idempotency-Key already present**
-  REDIS --> Consumer: **Key found**
+alt Idempotency-Key already present
+  REDIS --> SENDER: Key found
   deactivate REDIS
-  Consumer -> Consumer: **Discard duplicated message**
-  note right
+  SENDER -> SENDER: Discard duplicated message
+  note right of SENDER
     Message already processed
     or already in processing
   end note
+  SENDER --> CONSUMER: 409 Conflict
 
-else **Idempotency-Key not present**
-  REDIS --> Consumer: **Key not found**
-  Consumer -> REDIS: **Save Idempotency-Key**
-  REDIS --> Consumer: **Key saved**
+else Idempotency-Key not present
+  REDIS --> SENDER: Key not found
+  SENDER -> REDIS: Save Idempotency-Key
+  REDIS --> SENDER: Key saved
   deactivate REDIS
 
-  Consumer -> SPC: **Process UPDATE INVALID / EXPIRED**
-  activate SPC
-
-  SPC -> SRTP: **findRtpByCompositeKey**
+  SENDER -> SRTP: findRtpByCompositeKey
   activate SRTP
 
-  alt **RTP exists**
-    SRTP --> SPC: **RTP**
+  alt RTP exists
+    SRTP --> SENDER: RTP
     deactivate SRTP
 
-    note right
+    note right of SENDER
       Valid statuses for cancellation:
       - CREATED
       - SENT
       - ACCEPTED
       - USER_ACCEPTED
 
-      ---
       Cancellation request initiated
     end note
 
-    alt **Status is valid**
-      SPC -> SPD: **POST /sepa-request-to-pay-requests/{id}/cancellation-requests**
-      note right: Send **cancellation request** to SP Debtor
+    alt Status is valid
+      SENDER -> SPD: POST /sepa-request-to-pay-requests/{id}/cancellation-requests
       activate SPD
 
-      alt **Async flow EPC**
-        SPD --> SPC: **OK empty Body**
-        SPC -> SPC: **Set RTP status to RFC_SENT**
-        SPC -> SRTP: **Save RTP with RFC_SENT status**
+      alt Async flow EPC
+        SPD --> SENDER: OK empty body
+        SENDER -> SENDER: Set RTP status RFC_SENT
+        SENDER -> SRTP: Save RTP (RFC_SENT)
         activate SRTP
-        SRTP --> SPC: **Saved RTP**
+        SRTP --> SENDER: Saved RTP
         deactivate SRTP
+        SENDER --> CONSUMER: 204 No Content
 
-      else **Sync flow EPC**
-        SPD --> SPC: **OK payload**
-        SPC -> SPC: **Set RTP status to CANCELLED**
-        SPC -> SRTP: **Save RTP with CANCELLED status**
+      else Sync flow EPC
+        SPD --> SENDER: OK payload
+        SENDER -> SENDER: Set RTP status CANCELLED
+        SENDER -> SRTP: Save RTP (CANCELLED)
         activate SRTP
-        SRTP --> SPC: **Saved RTP**
+        SRTP --> SENDER: Saved RTP
         deactivate SRTP
+        SENDER --> CONSUMER: 200 OK
 
-      else **Error Sync Response**
-        SPD --> SPC: **Error response (e.g., 4xx, 5xx)**
-        SPC -> SPC: **Set RTP status to ERROR_CANCEL**
-        SPC -> SRTP: **Save RTP with ERROR_CANCEL status**
+      else Error Sync Response
+        SPD --> SENDER: Error (4xx / 5xx)
+        SENDER -> SENDER: Set RTP status ERROR_CANCEL
+        SENDER -> SRTP: Save RTP (ERROR_CANCEL)
         activate SRTP
-        SRTP --> SPC: **Saved RTP**
+        SRTP --> SENDER: Saved RTP
         deactivate SRTP
+        SENDER --> CONSUMER: Error propagated
       end
 
       deactivate SPD
-      SPC --> Consumer: **Outcome processed**
 
-    else **Invalid RTP status for cancellation**
-      SPC --> Consumer: **Error – Invalid RTP status**
-      note right: RTP is already in a final state (e.g., PAID, REJECTED)
+    else Invalid RTP status
+      SENDER --> CONSUMER: Error – Invalid RTP status
+      note right
+        RTP already in final state
+        (e.g., PAID, REJECTED)
+      end note
     end
 
-  else **RTP not found**
-    SRTP --> SPC: **Not found**
+  else RTP not found
+    SRTP --> SENDER: Not found
     deactivate SRTP
-    SPC --> Consumer: **Error – RTP not found**
+    SENDER --> CONSUMER: 404 Not Found
   end
-
-  deactivate SPC
 end
 
-deactivate Consumer
+deactivate SENDER
+
 @enduml

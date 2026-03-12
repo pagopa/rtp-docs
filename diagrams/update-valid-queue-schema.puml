@@ -1,173 +1,188 @@
 @startuml
-skin rose
-title **GDP Message – UPDATE VALID Flow**
 
-queue "**GDP Event Hub**" as Queue
-participant "**GDP Message Consumer**" as Consumer
-database "**Redis**\n**(Idempotency Key Store)**" as REDIS
-participant "**SP Creditore**" as SPC
-participant "**SP Debitore**" as SPD
-database "**SRTP**" as SRTP
+!theme materia
 
-Queue -> Consumer: **GDP Message**
-note left: **Status = VALID**
+title RTP Update Flow (VALID)
 
-activate Consumer
+participant "MS-CONSUMER" as CONSUMER
+participant "MS-SENDER" as SENDER
+database "Redis\n(Idempotency Key Store)" as REDIS
+database "SRTP" as SRTP
+participant "SP Debitore" as SPD
 
-Consumer -> REDIS: **Check Idempotency-Key**
+autonumber
+
+CONSUMER -> SENDER: Forward GDP UPDATE event\nHeaders: Idempotency-Key, RequestId
+note left
+  Operation = UPDATE
+  Status = VALID
+end note
+
+activate SENDER
+
+SENDER -> REDIS: Check Idempotency-Key
 activate REDIS
 
-alt **Idempotency-Key already present**
-  REDIS --> Consumer: **Key found**
+alt Idempotency-Key already present
+  REDIS --> SENDER: Key found
   deactivate REDIS
 
-  Consumer -> Consumer: **Discard duplicated message**
-  note right
-    **Message already processed**
-    **or already in processing**
+  SENDER -> SENDER: Discard duplicated message
+  note right of SENDER
+    Message already processed
+    or already in processing
   end note
 
-else **Idempotency-Key not present**
-  REDIS --> Consumer: **Key not found**
-  Consumer -> REDIS: **Save Idempotency-Key**
-  REDIS --> Consumer: **Key saved**
+  SENDER --> CONSUMER: 409 Conflict
+
+else Idempotency-Key not present
+  REDIS --> SENDER: Key not found
+  SENDER -> REDIS: Save Idempotency-Key
+  REDIS --> SENDER: Key saved
   deactivate REDIS
 
-  Consumer -> Consumer: **Check message operation**
+  SENDER -> SENDER: Check message operation
 
-  alt **Operation == UPDATE and Status == VALID**
-    Consumer -> SPC: **Process UPDATE VALID operation**
-    activate SPC
+  alt Operation == UPDATE and Status == VALID
+    SENDER -> SRTP: findRtpByOperationDispatcherKey
+    activate SRTP
 
-    SPC -> SPC: **Check RTP status is valid**
-    note right
-      **✅ Valid RTP statuses:**
-      - **CREATED**
-      - **SENT**
-      - **ACCEPTED**
-      - **USER_ACCEPTED**
-    end note
+    alt RTP exists
+      SRTP --> SENDER: RTP
+      deactivate SRTP
 
-    alt **RTP status is valid**
-      SPC -> SRTP: **findRtpByOperationDispatcherKey**
-      activate SRTP
+      SENDER -> SENDER: Check RTP status is valid
+      note right of SENDER
+        Valid RTP statuses:
+        - CREATED
+        - SENT
+        - ACCEPTED
+        - USER_ACCEPTED
+      end note
 
-      alt **RTP exists**
-        SRTP --> SPC: **RTP**
-        deactivate SRTP
-
-        SPC -> SPD: **POST /sepa-request-to-pay-requests/{id}/cancellation-requests**
-        note right: **Send cancellation request to SP Debitore**
+      alt RTP status is valid
+        SENDER -> SPD: POST /sepa-request-to-pay-requests/{id}/cancellation-requests
+        note right of SPD
+          Send cancellation request
+          to SP Debitore
+        end note
         activate SPD
 
-        alt **Async flow EPC**
-          SPD --> SPC: **OK empty Body**
-          SPC -> SPC: **Set RTP status to RFC_SENT**
-          SPC -> SRTP: **Save RTP with RFC_SENT status**
+        alt Async flow EPC
+          SPD --> SENDER: OK empty body
+          SENDER -> SENDER: Set RTP status RFC_SENT
+          SENDER -> SRTP: Save RTP (RFC_SENT)
           activate SRTP
-          SRTP --> SPC: **Saved RTP**
+          SRTP --> SENDER: Saved RTP
           deactivate SRTP
 
-        else **Sync flow EPC**
-          SPD --> SPC: **OK payload**
-          SPC -> SPC: **Set RTP status to CANCELLED**
-          SPC -> SRTP: **Save RTP with CANCELLED status**
+        else Sync flow EPC
+          SPD --> SENDER: OK payload
+          SENDER -> SENDER: Set RTP status CANCELLED
+          SENDER -> SRTP: Save RTP (CANCELLED)
           activate SRTP
-          SRTP --> SPC: **Saved RTP**
+          SRTP --> SENDER: Saved RTP
           deactivate SRTP
 
-        else **Error Sync Response**
-          SPD --> SPC: **Error response**
-          SPC -> SPC: **Set RTP status to ERROR_CANCEL**
-          SPC -> SRTP: **Save RTP with ERROR_CANCEL status**
+        else Error Sync Response
+          SPD --> SENDER: Error response
+          SENDER -> SENDER: Set RTP status ERROR_CANCEL
+          SENDER -> SRTP: Save RTP (ERROR_CANCEL)
           activate SRTP
-          SRTP --> SPC: **Saved RTP**
+          SRTP --> SENDER: Saved RTP
           deactivate SRTP
         end
 
         deactivate SPD
 
-        alt **RTP status is CANCELLED or CANCELLED with RFC**
-          SPC -> SPD: **POST /sepa-request-to-pay**
-          note right: **Send RTP to SP Debitore**
+        alt RTP status is CANCELLED or RFC_SENT
+          SENDER -> SPD: POST /sepa-request-to-pay
+          note right of SPD
+            Send RTP to SP Debitore
+          end note
           activate SPD
 
-          alt **SP Debitor accepts**
-            SPD --> SPC: **Response**
+          alt SP Debitore accepts
+            SPD --> SENDER: Response
             deactivate SPD
-
-            SPC -> SPC: **Set RTP status to SENT**
-            SPC -> SRTP: **Save RTP with SENT status**
+            SENDER -> SENDER: Set RTP status SENT
+            SENDER -> SRTP: Save RTP (SENT)
             activate SRTP
-            SRTP --> SPC: **Saved RTP**
+            SRTP --> SENDER: Saved RTP
             deactivate SRTP
+            SENDER --> CONSUMER: 200 OK
 
-          else **SP Debitor rejects**
-            SPD --> SPC: **Error response**
+          else SP Debitore rejects
+            SPD --> SENDER: Error response
             deactivate SPD
-            note right: **Based on SP Debitore response**
-
-            SPC -> SPC: **Set RTP status to REJECTED**
-            SPC -> SRTP: **Save RTP with REJECTED status**
+            note right of SENDER
+              Based on SP Debitore response
+            end note
+            SENDER -> SENDER: Set RTP status REJECTED
+            SENDER -> SRTP: Save RTP (REJECTED)
             activate SRTP
-            SRTP --> SPC: **Saved RTP**
+            SRTP --> SENDER: Saved RTP
             deactivate SRTP
+            SENDER --> CONSUMER: Error propagated
           end
 
-        else **Cancellation not possible or already final state**
-          SPC -> Consumer: **Skip to next operation**
+        else Cancellation not possible or already final state
+          SENDER --> CONSUMER: No action
         end
 
-        SPC --> Consumer: **Updated RTP**
-
-      else **RTP not found**
-        SRTP --> SPC: **Not found**
-        deactivate SRTP
-
-        SPC -> SPC: **Create RTP in status CREATED**
-        SPC -> SRTP: **Save RTP with CREATED status**
-        activate SRTP
-        SRTP --> SPC: **Saved RTP**
-        deactivate SRTP
-
-        SPC -> SPD: **POST /sepa-request-to-pay**
-        note right: **Send RTP to SP Debitore**
-        activate SPD
-
-        alt **Debitor accepts**
-          SPD --> SPC: **Response**
-          deactivate SPD
-
-          SPC -> SPC: **Set RTP status to SENT**
-          SPC -> SRTP: **Save RTP with SENT status**
-          activate SRTP
-          SRTP --> SPC: **Saved RTP**
-          deactivate SRTP
-
-        else **Debitor rejects**
-          SPD --> SPC: **Error response**
-          deactivate SPD
-          note right: **Based on SP Debitore response**
-
-          SPC -> SPC: **Set RTP status to REJECTED**
-          SPC -> SRTP: **Save RTP with REJECTED status**
-          activate SRTP
-          SRTP --> SPC: **Saved RTP**
-          deactivate SRTP
-        end
+      else RTP status invalid
+        SENDER --> CONSUMER: Error – Invalid RTP status
       end
 
-    else **RTP status invalid**
-      SPC --> Consumer: **Error – Invalid RTP status**
+    else RTP not found
+      SRTP --> SENDER: Not found
+      deactivate SRTP
+
+      SENDER -> SENDER: Create RTP in status CREATED
+      SENDER -> SRTP: Save RTP (CREATED)
+      activate SRTP
+      SRTP --> SENDER: Saved RTP
+      deactivate SRTP
+
+      SENDER -> SPD: POST /sepa-request-to-pay
+      note right of SPD
+        Send RTP to SP Debitore
+      end note
+      activate SPD
+
+      alt SP Debitore accepts
+        SPD --> SENDER: Response
+        deactivate SPD
+        SENDER -> SENDER: Set RTP status SENT
+        SENDER -> SRTP: Save RTP (SENT)
+        activate SRTP
+        SRTP --> SENDER: Saved RTP
+        deactivate SRTP
+        SENDER --> CONSUMER: 201 Created / 200 OK
+
+      else SP Debitore rejects
+        SPD --> SENDER: Error response
+        deactivate SPD
+        note right of SENDER
+          Based on SP Debitore response
+        end note
+        SENDER -> SENDER: Set RTP status REJECTED
+        SENDER -> SRTP: Save RTP (REJECTED)
+        activate SRTP
+        SRTP --> SENDER: Saved RTP
+        deactivate SRTP
+        SENDER --> CONSUMER: Error propagated
+      end
     end
 
-    deactivate SPC
-
-  else **Different Operation**
-    Consumer -> Consumer: **Skip message**
-    note right: **Operation is not UPDATE VALID**
+  else Different operation
+    SENDER -> SENDER: Skip message
+    note right of SENDER
+      Operation is not UPDATE VALID
+    end note
+    SENDER --> CONSUMER: No action
   end
 end
 
-deactivate Consumer
+deactivate SENDER
 @enduml
