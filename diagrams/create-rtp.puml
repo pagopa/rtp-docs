@@ -41,52 +41,62 @@ else Idempotency-Key not present
     REDIS --> SENDER: key saved
     deactivate REDIS
 
-    SENDER -> GR: GET /activations/payer
-    activate GR
+    SENDER -> SENDER: validate message
+    SENDER -> SENDER: validate operation == CREATE
+    SENDER -> SENDER: validate status == VALID
 
-    alt payer activated
-        GR --> SENDER: payer + serviceProvider
-        deactivate GR
+    alt message status is not VALID
+        SENDER --> CONSUMER: 400 Bad Request
+    else message status is VALID
+        SENDER -> SENDER: map message to RTP
 
-        SENDER -> SR: getRegistryData
-        activate SR
-        note left of SR
-          Search key:
-          payerId + serviceProvider
-        end note
-        SR --> SENDER: Service Provider data
-        deactivate SR
+        SENDER -> GR: GET /activations/payer
+        activate GR
 
-        SENDER -> SENDER: add activation data to EPC payload
+        alt payer activated
+            GR --> SENDER: payer + serviceProvider
+            deactivate GR
 
-        SENDER -> SRTP: save RTP (CREATED)
-        activate SRTP
-        SRTP --> SENDER: created
-        deactivate SRTP
+            SENDER -> SR: getRegistryData
+            activate SR
+            note left of SR
+              Search key:
+              payerId + serviceProvider
+            end note
+            SR --> SENDER: Service Provider data
+            deactivate SR
 
-        alt flag oAuth2 == true
-            SENDER -> CBI: OAuth2 token exchange
-            activate CBI
-            CBI --> SENDER: 200 received access token
-            deactivate CBI
+            SENDER -> SENDER: add activation data to EPC payload
+
+            SENDER -> SRTP: save RTP (CREATED)
+            activate SRTP
+            SRTP --> SENDER: created
+            deactivate SRTP
+
+            alt flag oAuth2 == true
+                SENDER -> CBI: OAuth2 token exchange
+                activate CBI
+                CBI --> SENDER: 200 received access token
+                deactivate CBI
+            end
+
+            SENDER -> DSP: POST /sepa-request-to-pay
+            activate DSP
+            DSP --> SENDER: 202 Accepted
+            deactivate DSP
+
+            SENDER -> SRTP: save RTP (SENT)
+            activate SRTP
+            SRTP --> SENDER: updated
+            deactivate SRTP
+
+            SENDER --> CONSUMER: 201 Created
+
+        else payer not activated
+            GR --> SENDER: not found
+            deactivate GR
+            SENDER --> CONSUMER: 404 Not Found
         end
-
-        SENDER -> DSP: POST /sepa-request-to-pay
-        activate DSP
-        DSP --> SENDER: 202 Accepted
-        deactivate DSP
-
-        SENDER -> SRTP: save RTP (SENT)
-        activate SRTP
-        SRTP --> SENDER: updated
-        deactivate SRTP
-
-        SENDER --> CONSUMER: 201 Created
-
-    else payer not activated
-        GR --> SENDER: not found
-        deactivate GR
-        SENDER --> CONSUMER: 404 Not Found
     end
 end
 
