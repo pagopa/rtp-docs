@@ -38,6 +38,8 @@ else Idempotency-Key not present
     REDIS --> SENDER: key saved
     deactivate REDIS
 
+    SENDER -> SENDER: validate message
+    SENDER -> SENDER: validate operation == DELETE
     SENDER -> SRTP: findRtpByOperationDispatcherKey
     activate SRTP
 
@@ -47,33 +49,44 @@ else Idempotency-Key not present
 
         SENDER -> SENDER: validate RTP status
         note right of SENDER
-          Cancellation request initiated
+          Accepted statuses:
+          CREATED, SENT,
+          ACCEPTED, USER_ACCEPTED
         end note
 
-        SENDER -> DSP: Send cancellation request\nPOST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
-        activate DSP
+        alt Status is valid
+            SENDER -> DSP: Send cancellation request\nPOST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
+            activate DSP
 
-        note left of DSP
-          Retry if failed
-        end note
+            note left of DSP
+              Retry if failed
+            end note
 
-        alt Async flow EPC
-            DSP --> SENDER: OK empty body
-            SENDER -> SENDER: update RTP status (RFC_SENT)
-            SENDER --> CONSUMER: 204 No Content
+            alt Async flow EPC
+                DSP --> SENDER: OK empty body
+                SENDER -> SENDER: update RTP status (RFC_SENT)
+                SENDER --> CONSUMER: 204 No Content
 
-        else Sync flow EPC
-            DSP --> SENDER: OK payload
-            SENDER -> SENDER: update RTP status (CANCELLED)
-            SENDER --> CONSUMER: 200 OK
+            else Sync flow EPC
+                DSP --> SENDER: OK payload
+                SENDER -> SENDER: update RTP status (CANCELLED)
+                SENDER --> CONSUMER: 200 OK
 
-        else Error Sync Response
-            DSP --> SENDER: Error
-            SENDER -> SENDER: update RTP status (ERROR_CANCEL)
-            SENDER --> CONSUMER: 4xx / business error
+            else Error Sync Response
+                DSP --> SENDER: Error
+                SENDER -> SENDER: update RTP status (ERROR_CANCEL)
+                SENDER --> CONSUMER: 4xx / business error
+            end
+
+            deactivate DSP
+
+        else Invalid RTP status
+            SENDER --> CONSUMER: 422 Unprocessable Entity
+            note right
+              RTP already in final state
+              (e.g., PAID, REJECTED)
+            end note
         end
-
-        deactivate DSP
 
     else RTP Not Found
         SRTP --> SENDER: not found
