@@ -42,9 +42,21 @@ else Idempotency-Key not present
   REDIS --> SENDER: Key saved
   deactivate REDIS
 
-  SENDER -> SENDER: Check message operation
+  SENDER -> SENDER: validate message
+  SENDER -> SENDER: validate operation == UPDATE
+  SENDER -> SENDER: validate status == PAID
 
-  alt Operation == UPDATE and Status == PAID
+  alt Message status is not supported
+    note right of SENDER
+      Unsupported statuses:
+      - PARTIALLY_PAID
+      - PUBLISHED
+    end note
+    SENDER --> CONSUMER: 400 Bad Request
+
+  else Message status is supported
+    SENDER -> SENDER: map message to RTP
+
     SENDER -> SRTP: findRtpByCompositeKey
     activate SRTP
 
@@ -108,7 +120,11 @@ else Idempotency-Key not present
         end
 
       else Invalid RTP status
-        SENDER --> CONSUMER: Error – Invalid RTP status
+        SENDER --> CONSUMER: 422 Unprocessable Entity
+        note right
+          RTP already in final state
+          (e.g., PAID, REJECTED)
+        end note
       end
 
     else RTP not found
@@ -116,13 +132,6 @@ else Idempotency-Key not present
       deactivate SRTP
       SENDER --> CONSUMER: 404 Not Found
     end
-
-  else Different operation
-    SENDER -> SENDER: Skip message
-    note right of SENDER
-      Operation is not UPDATE PAID
-    end note
-    SENDER --> CONSUMER: No action
   end
 end
 

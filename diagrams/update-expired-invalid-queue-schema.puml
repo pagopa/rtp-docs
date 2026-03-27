@@ -39,69 +39,85 @@ else Idempotency-Key not present
   REDIS --> SENDER: Key saved
   deactivate REDIS
 
-  SENDER -> SRTP: findRtpByCompositeKey
-  activate SRTP
+  SENDER -> SENDER: validate message
+  SENDER -> SENDER: validate operation == UPDATE
+  SENDER -> SENDER: validate status == INVALID or EXPIRED
 
-  alt RTP exists
-    SRTP --> SENDER: RTP
-    deactivate SRTP
-
+  alt Message status is not supported
     note right of SENDER
-      Valid statuses for cancellation:
-      - CREATED
-      - SENT
-      - ACCEPTED
-      - USER_ACCEPTED
-
-      Cancellation request initiated
+      Unsupported statuses:
+      - PARTIALLY_PAID
+      - PUBLISHED
     end note
+    SENDER --> CONSUMER: 400 Bad Request
 
-    alt Status is valid
-      SENDER -> SPD: POST /sepa-request-to-pay-requests/{id}/cancellation-requests
-      activate SPD
+  else Message status is supported
+    SENDER -> SENDER: map message to RTP
 
-      alt Async flow EPC
-        SPD --> SENDER: OK empty body
-        SENDER -> SENDER: Set RTP status RFC_SENT
-        SENDER -> SRTP: Save RTP (RFC_SENT)
-        activate SRTP
-        SRTP --> SENDER: Saved RTP
-        deactivate SRTP
-        SENDER --> CONSUMER: 204 No Content
+    SENDER -> SRTP: findRtpByCompositeKey
+    activate SRTP
 
-      else Sync flow EPC
-        SPD --> SENDER: OK payload
-        SENDER -> SENDER: Set RTP status CANCELLED
-        SENDER -> SRTP: Save RTP (CANCELLED)
-        activate SRTP
-        SRTP --> SENDER: Saved RTP
-        deactivate SRTP
-        SENDER --> CONSUMER: 200 OK
+    alt RTP exists
+      SRTP --> SENDER: RTP found
+      deactivate SRTP
 
-      else Error Sync Response
-        SPD --> SENDER: Error (4xx / 5xx)
-        SENDER -> SENDER: Set RTP status ERROR_CANCEL
-        SENDER -> SRTP: Save RTP (ERROR_CANCEL)
-        activate SRTP
-        SRTP --> SENDER: Saved RTP
-        deactivate SRTP
-        SENDER --> CONSUMER: Error propagated
+      note right of SENDER
+        Valid statuses for cancellation:
+        - CREATED
+        - SENT
+        - ACCEPTED
+        - USER_ACCEPTED
+
+        Cancellation request initiated
+      end note
+
+      alt Status is valid
+        SENDER -> SPD: POST /sepa-request-to-pay-requests/{id}/cancellation-requests
+        activate SPD
+
+        alt Async flow EPC
+          SPD --> SENDER: OK empty body
+          SENDER -> SENDER: Set RTP status RFC_SENT
+          SENDER -> SRTP: Save RTP (RFC_SENT)
+          activate SRTP
+          SRTP --> SENDER: Saved RTP
+          deactivate SRTP
+          SENDER --> CONSUMER: 204 No Content
+
+        else Sync flow EPC
+          SPD --> SENDER: OK payload
+          SENDER -> SENDER: Set RTP status CANCELLED
+          SENDER -> SRTP: Save RTP (CANCELLED)
+          activate SRTP
+          SRTP --> SENDER: Saved RTP
+          deactivate SRTP
+          SENDER --> CONSUMER: 200 OK
+
+        else Error Sync Response
+          SPD --> SENDER: Error (4xx / 5xx)
+          SENDER -> SENDER: Set RTP status ERROR_CANCEL
+          SENDER -> SRTP: Save RTP (ERROR_CANCEL)
+          activate SRTP
+          SRTP --> SENDER: Saved RTP
+          deactivate SRTP
+          SENDER --> CONSUMER: Error propagated
+        end
+
+        deactivate SPD
+
+      else Invalid RTP status
+        SENDER --> CONSUMER: 422 Unprocessable Entity
+        note right
+          RTP already in final state
+          (e.g., PAID, REJECTED)
+        end note
       end
 
-      deactivate SPD
-
-    else Invalid RTP status
-      SENDER --> CONSUMER: Error – Invalid RTP status
-      note right
-        RTP already in final state
-        (e.g., PAID, REJECTED)
-      end note
+    else RTP not found
+      SRTP --> SENDER: Not found
+      deactivate SRTP
+      SENDER --> CONSUMER: 404 Not Found
     end
-
-  else RTP not found
-    SRTP --> SENDER: Not found
-    deactivate SRTP
-    SENDER --> CONSUMER: 404 Not Found
   end
 end
 
