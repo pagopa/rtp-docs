@@ -1,60 +1,71 @@
 @startuml
-' PlantUML Diagram for GET Delivery Status API
-' Title: RTP Delivery Status Sequence Diagram
-' Version: 1.0.0
-' Description: GET /rtps/delivery-status?noticeNumber={nav}&payeeId={payeeId}
-'              Returns delivery status + RTP processing date (send date)
 
 !theme materia
 
 title RTP Notice Status API: GET /rtps/delivery-status?noticeNumber={nav}&payeeId={payeeId}
 
-actor "**Service Provider**" as SP
-participant "**rtp-sender**" as RS
-database "**Database**" as DB
+actor "Service Provider" as Client
+participant "SendAPIControllerImpl" as Controller
+participant "SendRTPServiceImpl" as Service
+participant "RtpRepository\n(Cosmos API Mongo)" as Repository
+participant "Azure Data Explorer" as ADX
 
-autonumber "<b>[0]"
+Client -> Controller : GET /rtps/delivery-status?noticeNumber={nav}&payeeId={payeeId}
+activate Controller
+note right of Controller : @PreAuthorize("hasRole('payee_read_rtp')")
 
-SP -> RS: **GET** /rtps/delivery-status?noticeNumber={nav}&payeeId={payeeId}
-activate RS
+alt Valid request
 
-note right of RS
-  **Operation:** `getDeliveryStatus`
-  The SP queries delivery status for a noticeNumber
-  filtered by payeeId.
-end note
+    Controller -> Service : findByNoticeNumber(noticeNumber)
+    activate Service
 
-RS -> RS: Validate Security Token
+    par Query Cosmos
+        Service -> Repository : findAllByNoticeNumber(noticeNumber)
+        activate Repository
+        Repository --> Service : Flux<Rtp>
+        deactivate Repository
+    else Query ADX
+        Service -> ADX : findByNoticeNumber(noticeNumber)
+        activate ADX
+        ADX --> Service : Flux<Rtp>
+        deactivate ADX
+    end
 
-alt #palegreen **Success case: RTP delivered**
+    Service -> Service : merge results into Flux<Rtp>
+    Service --> Controller : Flux<Rtp>
+    deactivate Service
 
-    RS -> DB: findRtpByNoticeNumber(noticeNumber)
-    activate DB
-    DB --> RS: results (0..n)
-    deactivate DB
+    Controller -> Service : getRtpDeliveryStatus(rtpFlux, payeeId)
+    activate Service
+    Service -> Service : filter by payeeId
+    Service -> Service : filter by event in [SEND_RTP, ERROR_SEND_RTP]
 
-    RS -> RS: Filter results by payeeId
-    RS -> RS: Evaluate status (SENT/ERROR_SEND)
+    alt matching RTP found
+        Service -> Service : map to RtpDeliveryResponseDto(PD_RTP_DELIVERED)
+        Service --> Controller : RtpDeliveryResponseDto
+    else no matching RTP found
+        Service -> Service : return RtpDeliveryResponseDto(PD_RTP_NOT_DELIVERED)
+        Service --> Controller : RtpDeliveryResponseDto
+    end
 
-    RS --> SP: **200 OK**\nResponse: "PD RTP delivered/PD not delivered"\nprocessingDate: {savingDateTime}
+    deactivate Service
+    Controller --> Client : 200 OK\nRtpDeliveryResponseDto
 
-else #darkred **Other Errors**
+else Errors
 
     group Client-Side Errors
-        RS --> SP: **400 Bad Request**\n(e.g., Invalid fiscal code, missing fields)
-        RS --> SP: **401 Unauthorized**\n(e.g., Invalid or expired security token)
-        RS --> SP: **403 Forbidden**\n(e.g., Insufficient permissions)
-        RS --> SP: **429 Too Many Requests**\n(e.g., Rate limit exceeded)
+        Controller --> Client : 400 Bad Request\n(e.g. invalid noticeNumber, missing payeeId)
+        Controller --> Client : 401 Unauthorized\n(e.g. invalid or expired security token)
+        Controller --> Client : 403 Forbidden\n(e.g. insufficient permissions)
+        Controller --> Client : 429 Too Many Requests\n(e.g. rate limit exceeded)
     end group
 
     group Server-Side Error
-         note over RS: e.g., Database connection failure, unhandled exception.
-         RS -> RS: An unexpected internal error occurs
-         RS --> SP: **500 Internal Server Error**
+        Controller --> Client : 500 Internal Server Error
     end group
 
 end
 
-deactivate RS
+deactivate Controller
 
 @enduml
