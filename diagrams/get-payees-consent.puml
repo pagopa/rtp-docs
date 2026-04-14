@@ -1,0 +1,45 @@
+@startuml
+!theme materia
+
+title Get Payees Consent Flow
+
+participant "API-CONSUMER" as CONSUMER
+participant "RTP-PAYEES" as PAY
+participant "BACKOFFICE" as BO
+
+autonumber
+
+CONSUMER -> PAY: GET /rtp/payees/consents\n?pageNumber=&pageSize=&consent=&fromDate=&toDate=
+note right of PAY
+  Required OAuth2 role:
+  read_rtp_payees
+end note
+activate PAY
+
+PAY -> PAY: validate Bearer token\n(OAuth2)
+
+alt Token valid with role "read_rtp_payees"
+    PAY -> BO: GET /institutions/services/{serviceId}/consents
+    activate BO
+
+    BO --> PAY: HTTP Response
+    deactivate BO
+
+    alt Backoffice returns success
+        PAY --> CONSUMER: 200 OK
+
+    else Backoffice returns error (400, 404, 429, 500)
+        PAY --> CONSUMER: forward error response
+    end
+
+else Token lacks role "read_rtp_payees"
+    PAY --> CONSUMER: 403 Forbidden
+
+else Missing or invalid token
+    PAY --> CONSUMER: 401 Unauthorized
+
+end
+
+deactivate PAY
+
+@enduml
