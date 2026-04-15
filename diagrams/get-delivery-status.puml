@@ -44,25 +44,27 @@ alt Valid request
         Service -> Service : map to RtpDeliveryResponseDto(PD_RTP_DELIVERED)
         Service --> Controller : RtpDeliveryResponseDto
     else no matching RTP found
-        Service -> Service : return RtpDeliveryResponseDto(PD_RTP_NOT_DELIVERED)
+        Service -> Service : map to RtpDeliveryResponseDto(PD_RTP_NOT_DELIVERED)
         Service --> Controller : RtpDeliveryResponseDto
     end
 
     deactivate Service
     Controller --> Client : 200 OK\nRtpDeliveryResponseDto
 
-else Errors
+else Invalid noticeNumber or missing payeeId
+    Controller --> Client : 400 Bad Request
 
-    group Client-Side Errors
-        Controller --> Client : 400 Bad Request\n(e.g. invalid noticeNumber, missing payeeId)
-        Controller --> Client : 401 Unauthorized\n(e.g. invalid or expired security token)
-        Controller --> Client : 403 Forbidden\n(e.g. insufficient permissions)
-        Controller --> Client : 429 Too Many Requests\n(e.g. rate limit exceeded)
-    end group
+else Invalid or expired security token
+    Controller --> Client : 401 Unauthorized
 
-    group Server-Side Error
-        Controller --> Client : 500 Internal Server Error
-    end group
+else Insufficient permissions
+    Controller --> Client : 403 Forbidden
+
+else Rate limit exceeded
+    Controller --> Client : 429 Too Many Requests
+
+else Unexpected server error
+    Controller --> Client : 500 Internal Server Error
 
 end
 

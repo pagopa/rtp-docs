@@ -17,35 +17,46 @@ Controller -> Service : findRtp(rtpId)
 activate Service
 
 Service -> Repository : findById(ResourceID)
+activate Repository
 
 alt RTP found in Cosmos
     Repository --> Service : Mono<Rtp>
+    deactivate Repository
 
 else RTP not found in Cosmos
     Repository --> Service : Mono.empty()
+    deactivate Repository
+
     Service -> ADX : findRtp(rtpId)
+    activate ADX
 
     alt RTP found in Azure Data Explorer
         ADX --> Service : Mono<Rtp>
+        deactivate ADX
+
     else RTP not found in Azure Data Explorer
         ADX --> Service : Mono.empty()
+        deactivate ADX
+
         Service --> Controller : error(RtpNotFoundException)
         deactivate Service
+
         Controller --> Client : 404 Not Found
         deactivate Controller
-        return
     end
 end
 
-Service --> Controller : Mono<Rtp>
-deactivate Service
+alt RTP successfully found
+    Service --> Controller : Mono<Rtp>
+    deactivate Service
 
-Controller -> Mapper : toRtpDto(Rtp)
-activate Mapper
-Mapper --> Controller : RtpDto
-deactivate Mapper
+    Controller -> Mapper : toRtpDto(Rtp)
+    activate Mapper
+    Mapper --> Controller : RtpDto
+    deactivate Mapper
 
-Controller --> Client : ResponseEntity<RtpDto>
-deactivate Controller
+    Controller --> Client : ResponseEntity<RtpDto>
+    deactivate Controller
+end
 
 @enduml
