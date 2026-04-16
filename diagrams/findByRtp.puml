@@ -1,8 +1,12 @@
 @startuml
+
+!theme materia
+
 actor "Client" as Client
 participant "SendAPIControllerImpl" as Controller
 participant "SendRTPServiceImpl" as Service
-participant "RtpRepository" as Repository
+participant "RtpRepository\n(Cosmos API Mongo)" as Repository
+participant "Azure Data Explorer" as ADX
 participant "RtpDtoMapper" as Mapper
 
 Client -> Controller : GET /rtps/{rtpId}
@@ -14,25 +18,45 @@ activate Service
 
 Service -> Repository : findById(ResourceID)
 activate Repository
-Repository --> Service : Mono<Rtp>
-deactivate Repository
 
-Service -> Service : MDC.put(...)\nlog retrieval
-Service --> Controller : Mono<Rtp>
-deactivate Service
+alt RTP found in Cosmos
+    Repository --> Service : Mono<Rtp>
+    deactivate Repository
 
-Controller -> Mapper : toRtpDto(Rtp)
-activate Mapper
-Mapper --> Controller : RtpDto
-deactivate Mapper
-
-Controller --> Client : ResponseEntity<RtpDto>
-deactivate Controller
-
-alt RTP not found
+else RTP not found in Cosmos
     Repository --> Service : Mono.empty()
-    Service --> Controller : error(RtpNotFoundException)
-    Controller --> Client : 404 Not Found
+    deactivate Repository
+
+    Service -> ADX : findRtp(rtpId)
+    activate ADX
+
+    alt RTP found in Azure Data Explorer
+        ADX --> Service : Mono<Rtp>
+        deactivate ADX
+
+    else RTP not found in Azure Data Explorer
+        ADX --> Service : Mono.empty()
+        deactivate ADX
+
+        Service --> Controller : error(RtpNotFoundException)
+        deactivate Service
+
+        Controller --> Client : 404 Not Found
+        deactivate Controller
+    end
+end
+
+alt RTP successfully found
+    Service --> Controller : Mono<Rtp>
+    deactivate Service
+
+    Controller -> Mapper : toRtpDto(Rtp)
+    activate Mapper
+    Mapper --> Controller : RtpDto
+    deactivate Mapper
+
+    Controller --> Client : ResponseEntity<RtpDto>
+    deactivate Controller
 end
 
 @enduml
