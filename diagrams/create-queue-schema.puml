@@ -1,5 +1,10 @@
 @startuml
-skin rose
+' PlantUML Diagram for RTP Cancellation API
+' Title: Unified RTP Cancellation Sequence Diagram
+' Version: 1.0.0
+
+!theme materia
+
 queue "PagoPa GDP Queue" as Queue
 participant "Message Consumer" as Consumer
 participant "Pagopa - SP Creditore" as SPC
