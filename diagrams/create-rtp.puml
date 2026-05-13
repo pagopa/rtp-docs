@@ -12,6 +12,7 @@ participant "MS-SENDER" as SENDER
 database "Redis\n(Idempotency Key Store)" as REDIS
 participant "MS-ACTIVATOR" as GR
 database "RTPS" as SRTP
+database "Azure Data Explorer\n(srtp)" as ADX
 database "Service Registry\n(BLOB)" as SR
 participant "CBI" as CBI
 participant "DSP" as DSP
@@ -82,15 +83,32 @@ else Idempotency-Key not present
 
             SENDER -> DSP: POST /sepa-request-to-pay
             activate DSP
-            DSP --> SENDER: 202 Accepted
-            deactivate DSP
+            alt 202 Accepted
+                DSP --> SENDER: 202 Accepted
+                deactivate DSP
 
-            SENDER -> SRTP: save RTP (SENT)
-            activate SRTP
-            SRTP --> SENDER: updated
-            deactivate SRTP
+                SENDER -> SRTP: save RTP (SENT)
+                activate SRTP
+                SRTP --> SENDER: updated
+                deactivate SRTP
 
-            SENDER --> CONSUMER: 201 Created
+                SENDER --> CONSUMER: 201 Created
+            else Error
+                DSP --> SENDER: Error
+                deactivate DSP
+
+                SENDER -> ADX: save RTP (ERROR_SEND)
+                activate ADX
+                ADX --> SENDER: confirm save
+                deactivate ADX
+
+                SENDER -> SRTP: delete RTP record
+                activate SRTP
+                SRTP --> SENDER: confirm delete
+                deactivate SRTP
+
+                SENDER --> CONSUMER: 4xx / business error
+            end
 
         else payer not activated
             GR --> SENDER: not found

@@ -11,6 +11,7 @@ participant "MS-CONSUMER" as CONSUMER
 participant "MS-SENDER" as SENDER
 database "Redis\n(Idempotency Key Store)" as REDIS
 database "RTPS" as SRTP
+database "Azure Data Explorer\n(srtp)" as ADX
 participant "DSP" as DSP
 
 autonumber
@@ -64,17 +65,30 @@ else Idempotency-Key not present
 
             alt Async flow EPC
                 DSP --> SENDER: OK empty body
-                SENDER -> SENDER: update RTP status (RFC_SENT)
+                SENDER -> SRTP: update RTP status (RFC_SENT)
+                activate SRTP
+                SRTP --> SENDER: confirm update
+                deactivate SRTP
                 SENDER --> CONSUMER: 204 No Content
 
             else Sync flow EPC
                 DSP --> SENDER: OK payload
-                SENDER -> SENDER: update RTP status (CANCELLED)
+                SENDER -> SRTP: update RTP status (CANCELLED)
+                activate SRTP
+                SRTP --> SENDER: confirm update
+                deactivate SRTP
                 SENDER --> CONSUMER: 200 OK
 
             else Error Sync Response
                 DSP --> SENDER: Error
-                SENDER -> SENDER: update RTP status (ERROR_CANCEL)
+                SENDER -> ADX: save RTP record (ERROR_CANCEL)
+                activate ADX
+                ADX --> SENDER: confirm save
+                deactivate ADX
+                SENDER -> SRTP: delete RTP record
+                activate SRTP
+                SRTP --> SENDER: confirm delete
+                deactivate SRTP
                 SENDER --> CONSUMER: 4xx / business error
             end
 

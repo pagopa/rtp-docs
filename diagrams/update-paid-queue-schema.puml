@@ -8,6 +8,7 @@ participant "MS-CONSUMER" as CONSUMER
 participant "MS-SENDER" as SENDER
 database "Redis\n(Idempotency Key Store)" as REDIS
 database "SRTP" as SRTP
+database "Azure Data Explorer\n(srtp)" as ADX
 database "Service Registry" as Registry
 participant "SP Debitore" as SPD
 
@@ -80,9 +81,13 @@ else Idempotency-Key not present
         deactivate Registry
 
         alt PSP BIC matches RTP.serviceProviderDebtor
-          SENDER -> SRTP: Save RTP (PAID)
+          SENDER -> ADX: Save RTP record (PAID)
+          activate ADX
+          ADX --> SENDER: Confirm save
+          deactivate ADX
+          SENDER -> SRTP: Delete RTP record
           activate SRTP
-          SRTP --> SENDER: Saved RTP
+          SRTP --> SENDER: Confirm delete
           deactivate SRTP
           SENDER --> CONSUMER: 200 OK
 
@@ -97,9 +102,13 @@ else Idempotency-Key not present
           alt SP Debtor accepts
             SPD --> SENDER: 201 Created
             SENDER -> SENDER: Set RTP status CANCELLED_PAID
-            SENDER -> SRTP: Save RTP (CANCELLED_PAID)
+            SENDER -> ADX: Save RTP record (CANCELLED_PAID)
+            activate ADX
+            ADX --> SENDER: Confirm save
+            deactivate ADX
+            SENDER -> SRTP: Delete RTP record
             activate SRTP
-            SRTP --> SENDER: Saved RTP
+            SRTP --> SENDER: Confirm delete
             deactivate SRTP
             SENDER --> CONSUMER: 200 OK
 
@@ -109,9 +118,13 @@ else Idempotency-Key not present
               Based on SP Debtor response
             end note
             SENDER -> SENDER: Set RTP status ERROR_CANCEL
-            SENDER -> SRTP: Save RTP (ERROR_CANCEL)
+            SENDER -> ADX: Save RTP record (ERROR_CANCEL)
+            activate ADX
+            ADX --> SENDER: Confirm save
+            deactivate ADX
+            SENDER -> SRTP: Delete RTP record
             activate SRTP
-            SRTP --> SENDER: Saved RTP
+            SRTP --> SENDER: Confirm delete
             deactivate SRTP
             SENDER --> CONSUMER: Error propagated
           end

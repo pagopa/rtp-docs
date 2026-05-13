@@ -10,6 +10,7 @@ participant "**Registry Service**" as Registry
 participant "**Callback Handler**" as Handler
 participant "**RTP Status Updater**" as Updater
 database "**RTP Database**" as DB
+database "**Azure Data Explorer**" as ADX
 
 autonumber "<b>[0]"
 
@@ -26,7 +27,7 @@ activate Registry
 Registry --> Checker: Return registry data
 deactivate Registry
 
-alt #palegreen **Success Case: Certificate Verified & Callback Processed**
+alt **Success Case: Certificate Verified & Callback Processed**
 
     Checker -> Checker: Provider found & certificate serial number matches
     note right: As per `certificateServiceNumberRegistry.equalsIgnoreCase(...)`
@@ -43,29 +44,48 @@ alt #palegreen **Success Case: Certificate Verified & Callback Processed**
     DB --> Handler: Return RTP record
     deactivate DB
 
-    alt #lightgreen **Status: ACCEPTED** (e.g., ACTC, ACCP)
+    alt **Status: ACCEPTED** (e.g., ACTC, ACCP)
         Handler -> Updater: triggerAcceptRtp(Rtp)
         activate Updater
         Updater -> DB: Update RTP status to "ACCEPTED"
-        DB -[#lightgreen]-> Updater: confirm update
-        Updater -[#lightgreen]-> Handler: return updated RTP
+        activate DB
+        DB --> Updater: confirm update
+        deactivate DB
+        Updater --> Handler: return updated RTP
         deactivate Updater
-    else #lightyellow **Status: REJECTED** (e.g., RJCT)
-        Handler -> Updater: trigger...RejectRtp(Rtp)
+    else **Status: REJECTED** (e.g., RJCT)
+        Handler -> Updater: triggerRejectRtp(Rtp)
         activate Updater
-        note right of Handler
-            Logic depends on current state.
-            Either `triggerRejectRtp` or `triggerUserRejectRtp`.
-        end note
-        Updater -> DB: Update RTP status to "REJECTED"
-        DB -[#lightyellow]-> Updater: confirm update
-        Updater -[#lightyellow]-> Handler: return updated RTP
+        Updater -> ADX: Save RTP record
+        activate ADX
+        ADX --> Updater: confirm save
+        deactivate ADX
+        Updater -> DB: Delete RTP record
+        activate DB
+        DB --> Updater: confirm delete
+        deactivate DB
+        Updater --> Handler: return updated RTP
         deactivate Updater
-    else #lightcoral **Status: ERROR** or other
+    else **Status: USER REJECTED**
+        Handler -> Updater: triggerUserRejectRtp(Rtp)
+        activate Updater
+        Updater -> ADX: Save RTP record
+        activate ADX
+        ADX --> Updater: confirm save
+        deactivate ADX
+        Updater -> DB: Delete RTP record
+        activate DB
+        DB --> Updater: confirm delete
+        deactivate DB
+        Updater --> Handler: return updated RTP
+        deactivate Updater
+    else **Status: ERROR** or other
         Handler -> Updater: triggerErrorSendRtp(Rtp)
         activate Updater
         Updater -> DB: Update RTP status to "ERROR"
-        DB -[#lightcoral]-> Updater: confirm update
+        activate DB
+        DB --> Updater: confirm update
+        deactivate DB
         Updater --[#red]> Handler: Error: `IllegalStateException`
         deactivate Updater
     end
@@ -74,7 +94,7 @@ alt #palegreen **Success Case: Certificate Verified & Callback Processed**
     deactivate Handler
     AS --> SPD: **200 OK**
 
-else #orange **Error: Certificate or Provider Invalid**
+else **Error: Certificate or Provider Invalid**
 
     alt **Certificate Mismatch**
         Checker -> Checker: Certificate serial number does NOT match
@@ -88,7 +108,7 @@ else #orange **Error: Certificate or Provider Invalid**
         AS --> SPD: **400 Bad Request**
     end
 
-else #darkred **Error: Data or State Invalid**
+else **Error: Data or State Invalid**
 
     deactivate Checker
     AS -> Handler: handle(payload)
