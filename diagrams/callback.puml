@@ -4,13 +4,13 @@
 title SEPA Request-To-Pay - Callback Processing Flow
 
 participant "SP Debtor" as SPD
-participant "**RTP Service\n(API/Controller)**" as AS
+participant "**RTP Service**\n(API/Controller)" as AS
 participant "**Certificate Checker**" as Checker
 participant "**Registry Service**" as Registry
 participant "**Callback Handler**" as Handler
 participant "**RTP Status Updater**" as Updater
 database "**RTP Database**" as DB
-database "**Azure Data Explorer**" as ADX
+database "**Azure Data Explorer**\n(SRTP)" as ADX
 
 autonumber "<b>[0]"
 
@@ -24,10 +24,10 @@ note right of AS: Controller delegates security verification first.
 Checker -> Checker: Extract `serviceProviderDebtorId` from payload
 Checker -> Registry: getRegistryData()
 activate Registry
-Registry --> Checker: Return registry data
+Registry --> Checker: registry data
 deactivate Registry
 
-alt **Success Case: Certificate Verified & Callback Processed**
+alt **[SUCCESS] Certificate verified & callback processed**
 
     Checker -> Checker: Provider found & certificate serial number matches
     note right: As per `certificateServiceNumberRegistry.equalsIgnoreCase(...)`
@@ -39,61 +39,64 @@ alt **Success Case: Certificate Verified & Callback Processed**
     note right of AS: Verification passed, delegating to business logic handler.
 
     Handler -> Handler: Extract `resourceId` & `transactionStatus` from payload
+
     Handler -> DB: findById(resourceId)
     activate DB
     DB --> Handler: result (RTP record or empty)
     deactivate DB
 
-    alt **RTP found in DB**
-        note right of Handler: RTP record retrieved from RTP Database
-    else **RTP not found in DB**
+    alt **RTP not found in DB**
         Handler -> ADX: findById(resourceId)
         activate ADX
-        ADX --> Handler: Return RTP record
+        ADX --> Handler: RTP record
         deactivate ADX
     end
+    note right of Handler: RTP record resolved (DB or ADX fallback)
 
-    alt **Status: ACCEPTED** (e.g., ACTC, ACCP)
+    alt **Status: ACCEPTED** (ACTC, ACCP)
         Handler -> Updater: triggerAcceptRtp(Rtp)
         activate Updater
-        Updater -> DB: Update RTP status to "ACCEPTED"
+        Updater -> DB: Update status → ACCEPTED
         activate DB
-        DB --> Updater: confirm update
+        DB --> Updater: confirm
         deactivate DB
-        Updater --> Handler: return updated RTP
+        Updater --> Handler: updated RTP
         deactivate Updater
-    else **Status: REJECTED** (e.g., RJCT)
+
+    else **Status: REJECTED** (RJCT)
         Handler -> Updater: triggerRejectRtp(Rtp)
         activate Updater
         Updater -> ADX: Save RTP record
         activate ADX
-        ADX --> Updater: confirm save
+        ADX --> Updater: confirm
         deactivate ADX
         Updater -> DB: Delete RTP record
         activate DB
-        DB --> Updater: confirm delete
+        DB --> Updater: confirm
         deactivate DB
-        Updater --> Handler: return updated RTP
+        Updater --> Handler: updated RTP
         deactivate Updater
+
     else **Status: USER REJECTED**
         Handler -> Updater: triggerUserRejectRtp(Rtp)
         activate Updater
         Updater -> ADX: Save RTP record
         activate ADX
-        ADX --> Updater: confirm save
+        ADX --> Updater: confirm
         deactivate ADX
         Updater -> DB: Delete RTP record
         activate DB
-        DB --> Updater: confirm delete
+        DB --> Updater: confirm
         deactivate DB
-        Updater --> Handler: return updated RTP
+        Updater --> Handler: updated RTP
         deactivate Updater
-    else **Status: ERROR** or other
+
+    else **Status: ERROR** or unknown
         Handler -> Updater: triggerErrorSendRtp(Rtp)
         activate Updater
-        Updater -> DB: Update RTP status to "ERROR"
+        Updater -> DB: Update status → ERROR
         activate DB
-        DB --> Updater: confirm update
+        DB --> Updater: confirm
         deactivate DB
         Updater --[#red]> Handler: Error: `IllegalStateException`
         deactivate Updater
@@ -103,27 +106,28 @@ alt **Success Case: Certificate Verified & Callback Processed**
     deactivate Handler
     AS --> SPD: **200 OK**
 
-else **Error: Certificate or Provider Invalid**
+else **[ERROR] Certificate or provider invalid**
 
-    alt **Certificate Mismatch**
-        Checker -> Checker: Certificate serial number does NOT match
+    alt **Certificate mismatch**
+        Checker -> Checker: Serial number does NOT match
         Checker --[#red]> AS: Error: `IncorrectCertificate`
         deactivate Checker
         AS --> SPD: **403 Forbidden**
-    else **Provider Not Found in Registry**
-        Checker -> Checker: No provider found for `serviceProviderDebtorId`
+
+    else **Provider not found in registry**
+        Checker -> Checker: No provider for `serviceProviderDebtorId`
         Checker --[#red]> AS: Error: `ServiceProviderNotFoundException`
         deactivate Checker
         AS --> SPD: **400 Bad Request**
     end
 
-else **Error: Data or State Invalid**
+else **[ERROR] Data or state invalid**
 
     deactivate Checker
     AS -> Handler: handle(payload)
     activate Handler
 
-    alt **RTP Not Found in DB or ADX**
+    alt **RTP not found in DB or ADX**
         Handler -> Handler: Extract `resourceId`
         Handler -> DB: findById(resourceId)
         activate DB
@@ -137,7 +141,8 @@ else **Error: Data or State Invalid**
         Handler --[#red]> AS: Error: `IllegalStateException`
         deactivate Handler
         AS --> SPD: **400 Bad Request**
-    else **Invalid Payload**
+
+    else **Invalid payload**
         Handler --[#red]> AS: Error: `IllegalArgumentException`
         deactivate Handler
         AS --> SPD: **400 Bad Request**
