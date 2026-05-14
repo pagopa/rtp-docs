@@ -41,8 +41,17 @@ alt **Success Case: Certificate Verified & Callback Processed**
     Handler -> Handler: Extract `resourceId` & `transactionStatus` from payload
     Handler -> DB: findById(resourceId)
     activate DB
-    DB --> Handler: Return RTP record
+    DB --> Handler: result (RTP record or empty)
     deactivate DB
+
+    alt **RTP found in DB**
+        note right of Handler: RTP record retrieved from RTP Database
+    else **RTP not found in DB**
+        Handler -> ADX: findById(resourceId)
+        activate ADX
+        ADX --> Handler: Return RTP record
+        deactivate ADX
+    end
 
     alt **Status: ACCEPTED** (e.g., ACTC, ACCP)
         Handler -> Updater: triggerAcceptRtp(Rtp)
@@ -114,12 +123,16 @@ else **Error: Data or State Invalid**
     AS -> Handler: handle(payload)
     activate Handler
 
-    alt **RTP Not Found in DB**
+    alt **RTP Not Found in DB or ADX**
         Handler -> Handler: Extract `resourceId`
         Handler -> DB: findById(resourceId)
         activate DB
         DB --> Handler: empty
         deactivate DB
+        Handler -> ADX: findById(resourceId)
+        activate ADX
+        ADX --> Handler: empty
+        deactivate ADX
         Handler -> Handler: Throw `IllegalStateException`
         Handler --[#red]> AS: Error: `IllegalStateException`
         deactivate Handler
