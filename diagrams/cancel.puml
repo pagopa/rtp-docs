@@ -10,43 +10,50 @@ title RTP Delete Flow
 participant "MS-CONSUMER" as CONSUMER
 participant "MS-SENDER" as SENDER
 database "Redis\n(Idempotency Key Store)" as REDIS
-database "RTPS" as SRTP
-database "Azure Data Explorer\n(srtp)" as ADX
+database "RTPS\n(MongoDB)" as SRTP
+database "Azure Data Explorer\n(SRTP)" as ADX
 participant "DSP" as DSP
 
 autonumber
 
-CONSUMER -> SENDER: DELETE RTP request\nHeaders: Idempotency-Key, RequestId\nPayload: RTP cancellation data
+CONSUMER -> SENDER: **DELETE** RTP request\nHeaders: Idempotency-Key, RequestId\nPayload: RTP cancellation data
 activate SENDER
 
 SENDER -> REDIS: check Idempotency-Key
 activate REDIS
 
-alt Idempotency-Key already present
+alt **[DUPLICATE] Idempotency-Key already present**
     REDIS --> SENDER: key found
     deactivate REDIS
     SENDER -> SENDER: discard duplicated message
     note right of SENDER
       Duplicated message:
-      already processed
-      or already in processing
+      already processed or in processing
     end note
-    SENDER --> CONSUMER: 409 Conflict
+    SENDER --> CONSUMER: **409 Conflict**
 
-else Idempotency-Key not present
+else **[NEW] Idempotency-Key not present**
     REDIS --> SENDER: key not found
     SENDER -> REDIS: save Idempotency-Key
     REDIS --> SENDER: key saved
     deactivate REDIS
 
-    SENDER -> SENDER: validate message
-    SENDER -> SENDER: validate operation == DELETE
+    SENDER -> SENDER: validate message & operation == DELETE
+
     SENDER -> SRTP: findRtpByOperationDispatcherKey
     activate SRTP
+    SRTP --> SENDER: result (RTP record or empty)
+    deactivate SRTP
 
-    alt RTP Found
-        SRTP --> SENDER: RTP Found
-        deactivate SRTP
+    alt **RTP not found in SRTP**
+        SENDER -> ADX: findRtpByOperationDispatcherKey
+        activate ADX
+        ADX --> SENDER: result (RTP record or empty)
+        deactivate ADX
+    end
+    note right of SENDER: RTP record resolved (SRTP or ADX fallback)
+
+    alt **[FOUND] RTP record exists**
 
         SENDER -> SENDER: validate RTP status
         note right of SENDER
@@ -55,58 +62,51 @@ else Idempotency-Key not present
           ACCEPTED, USER_ACCEPTED
         end note
 
-        alt Status is valid
-            SENDER -> DSP: Send cancellation request\nPOST /sepa-request-to-pay-requests/{sepaRequestToPayRequestResourceId}/cancellation-requests
+        alt **[VALID] Status allows cancellation**
+            SENDER -> DSP: POST /sepa-request-to-pay-requests\n/{resourceId}/cancellation-requests
             activate DSP
+            note left of DSP: Retry if failed
 
-            note left of DSP
-              Retry if failed
-            end note
-
-            alt Async flow EPC
-                DSP --> SENDER: OK empty body
-                SENDER -> SRTP: update RTP status (RFC_SENT)
+            alt **Async flow (EPC)**
+                DSP --> SENDER: 200 OK (empty body)
+                SENDER -> SRTP: update status → RFC_SENT
                 activate SRTP
-                SRTP --> SENDER: confirm update
+                SRTP --> SENDER: confirm
                 deactivate SRTP
-                SENDER --> CONSUMER: 204 No Content
+                SENDER --> CONSUMER: **204 No Content**
 
-            else Sync flow EPC
-                DSP --> SENDER: OK payload
-                SENDER -> SRTP: update RTP status (CANCELLED)
+            else **Sync flow (EPC)**
+                DSP --> SENDER: 200 OK (payload)
+                SENDER -> SRTP: update status → CANCELLED
                 activate SRTP
-                SRTP --> SENDER: confirm update
+                SRTP --> SENDER: confirm
                 deactivate SRTP
-                SENDER --> CONSUMER: 200 OK
+                SENDER --> CONSUMER: **200 OK**
 
-            else Error Sync Response
+            else **Error response**
                 DSP --> SENDER: Error
                 SENDER -> ADX: save RTP record (ERROR_CANCEL)
                 activate ADX
-                ADX --> SENDER: confirm save
+                ADX --> SENDER: confirm
                 deactivate ADX
                 SENDER -> SRTP: delete RTP record
                 activate SRTP
-                SRTP --> SENDER: confirm delete
+                SRTP --> SENDER: confirm
                 deactivate SRTP
-                SENDER --> CONSUMER: 4xx / business error
+                SENDER --> CONSUMER: **4xx** / business error
             end
 
             deactivate DSP
 
-        else Invalid RTP status
-            SENDER --> CONSUMER: 422 Unprocessable Entity
-            note right
-              RTP already in final state
-              (e.g., PAID, REJECTED)
-            end note
+        else **[INVALID] Status does not allow cancellation**
+            SENDER --> CONSUMER: **422 Unprocessable Entity**
+            note right: RTP already in final state\n(e.g., PAID, REJECTED)
         end
 
-    else RTP Not Found
-        SRTP --> SENDER: not found
-        deactivate SRTP
-        SENDER --> CONSUMER: 404 Not Found
+    else **[NOT FOUND] RTP not in SRTP or ADX**
+        SENDER --> CONSUMER: **404 Not Found**
     end
+
 end
 
 deactivate SENDER
