@@ -90,16 +90,6 @@ alt **[SUCCESS] Certificate verified & callback processed**
         deactivate DB
         Updater --> Handler: updated RTP
         deactivate Updater
-
-    else **Status: ERROR** or unknown
-        Handler -> Updater: triggerErrorSendRtp(Rtp)
-        activate Updater
-        Updater -> DB: Update status → ERROR
-        activate DB
-        DB --> Updater: confirm
-        deactivate DB
-        Updater --[#red]> Handler: Error: `IllegalStateException`
-        deactivate Updater
     end
 
     Handler --> AS: success
