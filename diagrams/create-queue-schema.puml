@@ -1,106 +1,127 @@
 @startuml
-' PlantUML Diagram for RTP Cancellation API
-' Title: Unified RTP Cancellation Sequence Diagram
-' Version: 1.0.0
 
 !theme materia
+
+title RTP Create Queue Flow
 
 queue "PagoPa GDP Queue" as Queue
 participant "Message Consumer" as Consumer
 participant "Pagopa - SP Creditore" as SPC
 participant "Gestore Repository" as GR
 database "Payer" as Payer
-database "SRTP" as SRTP
-database "Azure Data Explorer\n(srtp)" as ADX
+database "SRTP\n(MongoDB)" as SRTP
+database "Azure Data Explorer\n(SRTP)" as ADX
 database "Service Registry" as SR
 database "Payee Registry" as PR
 participant "CBI" as SPD
 
+autonumber
+
 Queue -> Consumer: Queue Message
-note left: RTP data from GDP
+note left of Queue: RTP data from GDP
 activate Consumer
+
 Consumer -> Consumer: Check message operation
-note right: Validate operation type
-alt message is CREATE operation
-Consumer -> PR: Retrieve Payee data
-activate PR
-PR --> Consumer: Payee data
-deactivate PR
-Consumer -> Consumer: Map message and Payee data into RTP
-Consumer -> SPC: Process CREATE RTP Message
-activate SPC
-SPC -> GR: GET /activations/payer
-activate GR
-GR -> Payer: findByPayerId
-activate Payer
-Payer --> GR
-deactivate Payer
-alt user activated
-GR --> SPC: payer and its Service Provider
-deactivate GR
-SPC -> GR: getRegistryData
-note left: Search key: ID Payer SP
-activate GR
-GR -> SR
-activate SR
-SR --> GR: Service Provider data
-note right: service_endpoint, oauth2
-deactivate SR
-GR --> SPC: Service Provider data
-deactivate GR
-alt Service Provider is CBI
-SPC -> SPC: add activation data to EPC payload
-SPC -> SRTP: save RTP in status CREATED
-activate SRTP
-SRTP --> SPC: created
-deactivate SRTP
-SPC <-> SPD: oAuth2
-activate SPD
-SPC -> SPD: POST /sepa-request-to-pay
-note left: oAuth2
-alt 202 accepted
-SPD --> SPC: 202 accepted
-deactivate SPD
-SPC -> SRTP: save RTP in status SENT
-activate SRTP
-SRTP --> SPC: updated
-deactivate SRTP
-SPC --> Consumer: Processing completed
-else Error
-SPD --> SPC: Error
-deactivate SPD
-loop **retry up to 3 times on error (exhausted → error propagated)**
-SPC -> ADX: save RTP in status ERROR_SEND
-activate ADX
-ADX --> SPC: confirm save
-deactivate ADX
+
+alt **[CREATE] Message operation is CREATE**
+
+  Consumer -> PR: Retrieve Payee data
+  activate PR
+  PR --> Consumer: Payee data
+  deactivate PR
+
+  Consumer -> Consumer: Map message and Payee data into RTP
+  Consumer -> SPC: Process CREATE RTP Message
+  activate SPC
+
+  SPC -> GR: GET /activations/payer
+  activate GR
+  GR -> Payer: findByPayerId
+  activate Payer
+  Payer --> GR: payer data
+  deactivate Payer
+
+  alt **[FOUND] User activated**
+    GR --> SPC: payer and its Service Provider
+    deactivate GR
+
+    SPC -> GR: getRegistryData
+    note left of GR: Search key: ID Payer SP
+    activate GR
+    GR -> SR
+    activate SR
+    SR --> GR: Service Provider data
+    note right of SR: service_endpoint, oauth2
+    deactivate SR
+    GR --> SPC: Service Provider data
+    deactivate GR
+
+    alt **[CBI] Service Provider is CBI**
+      SPC -> SPC: add activation data to EPC payload
+
+      SPC -> SRTP: save RTP (CREATED)
+      activate SRTP
+      SRTP --> SPC: created
+      deactivate SRTP
+
+      SPC <-> SPD: oAuth2
+      activate SPD
+      SPC -> SPD: POST /sepa-request-to-pay
+      note left of SPD: oAuth2
+
+      alt **202 Accepted**
+        SPD --> SPC: 202 Accepted
+        deactivate SPD
+
+        SPC -> SRTP: save RTP (SENT)
+        activate SRTP
+        SRTP --> SPC: updated
+        deactivate SRTP
+
+        SPC --> Consumer: **Processing completed**
+
+      else **[ERROR] CBI returned error**
+        SPD --> SPC: Error
+        deactivate SPD
+
+        loop **retry up to 3 times on error (exhausted → error propagated)**
+          SPC -> ADX: save RTP (ERROR_SEND)
+          activate ADX
+          ADX --> SPC: confirm save
+          deactivate ADX
+        end
+        loop **retry up to 3 times on error (exhausted → error propagated)**
+          SPC -> SRTP: delete RTP record
+          activate SRTP
+          SRTP --> SPC: confirm delete
+          deactivate SRTP
+        end
+
+        SPC --> Consumer: **Processing failed**
+      end
+
+    else **[OTHER] Service Provider is not CBI**
+      SPC -> SRTP: save RTP (SENT)
+      activate SRTP
+      SRTP --> SPC: updated
+      deactivate SRTP
+      SPC --> Consumer: **Processing completed (Mocked)**
+      note right of SPC: Mocked during CBI integration
+    end
+
+  else **[NOT FOUND] User not activated**
+    GR --> SPC: 404 not found
+    deactivate GR
+    SPC --> Consumer: **Processing failed**
+  end
+
+  deactivate SPC
+
+else **[SKIP] Message operation is not CREATE**
+  Consumer -> Consumer: Skip processing
+  note right of Consumer: Different operation type
 end
-loop **retry up to 3 times on error (exhausted → error propagated)**
-SPC -> SRTP: delete RTP record
-activate SRTP
-SRTP --> SPC: confirm delete
-deactivate SRTP
-end
-SPC --> Consumer: Processing failed
-end
-else Service Provider is not CBI
-SPC -> SRTP: save RTP in status SENT
-activate SRTP
-SRTP --> SPC: updated
-deactivate SRTP
-SPC --> Consumer: Processing completed (Mocked)
-note right: Mocked during CBI integration
-end
-else user not activated
-activate GR
-GR --> SPC: 404 not found
-deactivate GR
-SPC --> Consumer: Processing failed
-end
-else message is not CREATE operation
-Consumer -> Consumer: Skip processing
-note right: Different operation type
-end
-deactivate SPC
+
 deactivate Consumer
+
 @enduml

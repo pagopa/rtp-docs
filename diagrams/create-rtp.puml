@@ -1,7 +1,4 @@
 @startuml
-' PlantUML Diagram for RTP Send API
-' Title: Detailed RTP Send Sequence Diagram
-' Version: 2.0.0
 
 !theme materia
 
@@ -11,114 +8,115 @@ participant "MS-CONSUMER" as CONSUMER
 participant "MS-SENDER" as SENDER
 database "Redis\n(Idempotency Key Store)" as REDIS
 participant "MS-ACTIVATOR" as GR
-database "RTPS" as SRTP
-database "Azure Data Explorer\n(srtp)" as ADX
+database "RTPS\n(MongoDB)" as SRTP
+database "Azure Data Explorer\n(SRTP)" as ADX
 database "Service Registry\n(BLOB)" as SR
 participant "CBI" as CBI
 participant "DSP" as DSP
 
 autonumber
 
-CONSUMER -> SENDER: CREATE RTP request\nHeaders: Idempotency-Key, RequestId\nPayload: RTP creation data
+CONSUMER -> SENDER: **CREATE** RTP request\nHeaders: Idempotency-Key, RequestId\nPayload: RTP creation data
 activate SENDER
 
 SENDER -> REDIS: check Idempotency-Key
 activate REDIS
 
-alt Idempotency-Key already present
-    REDIS --> SENDER: key found
-    deactivate REDIS
-    SENDER -> SENDER: discard duplicated message
-    note right of SENDER
-      Duplicated message:
-      already processed
-      or already in processing
-    end note
-    SENDER --> CONSUMER: 409 Conflict
+alt **[DUPLICATE] Idempotency-Key already present**
+  REDIS --> SENDER: key found
+  deactivate REDIS
+  SENDER -> SENDER: discard duplicated message
+  note right of SENDER
+    Duplicated message:
+    already processed
+    or already in processing
+  end note
+  SENDER --> CONSUMER: **409 Conflict**
 
-else Idempotency-Key not present
-    REDIS --> SENDER: key not found
-    SENDER -> REDIS: save Idempotency-Key
-    REDIS --> SENDER: key saved
-    deactivate REDIS
+else **[NEW] Idempotency-Key not present**
+  REDIS --> SENDER: key not found
+  SENDER -> REDIS: save Idempotency-Key
+  REDIS --> SENDER: key saved
+  deactivate REDIS
 
-    SENDER -> SENDER: validate message
-    SENDER -> SENDER: validate operation == CREATE
-    SENDER -> SENDER: validate status == VALID
+  SENDER -> SENDER: validate message & operation == CREATE & status == VALID
 
-    alt message status is not VALID
-        SENDER --> CONSUMER: 400 Bad Request
-    else message status is VALID
-        SENDER -> SENDER: map message to RTP
+  alt **[INVALID STATUS] Message status is not VALID**
+    SENDER --> CONSUMER: **400 Bad Request**
 
-        SENDER -> GR: GET /activations/payer
-        activate GR
+  else **[VALID] Message status is VALID**
+    SENDER -> SENDER: map message to RTP
 
-        alt payer activated
-            GR --> SENDER: payer + serviceProvider
-            deactivate GR
+    SENDER -> GR: GET /activations/payer
+    activate GR
 
-            SENDER -> SR: getRegistryData
-            activate SR
-            note left of SR
-              Search key:
-              payerId + serviceProvider
-            end note
-            SR --> SENDER: Service Provider data
-            deactivate SR
+    alt **[FOUND] Payer activated**
+      GR --> SENDER: payer + serviceProvider
+      deactivate GR
 
-            SENDER -> SENDER: add activation data to EPC payload
+      SENDER -> SR: getRegistryData
+      activate SR
+      note left of SR
+        Search key:
+        payerId + serviceProvider
+      end note
+      SR --> SENDER: Service Provider data
+      deactivate SR
 
-            SENDER -> SRTP: save RTP (CREATED)
-            activate SRTP
-            SRTP --> SENDER: created
-            deactivate SRTP
+      SENDER -> SENDER: add activation data to EPC payload
 
-            alt flag oAuth2 == true
-                SENDER -> CBI: OAuth2 token exchange
-                activate CBI
-                CBI --> SENDER: 200 received access token
-                deactivate CBI
-            end
+      SENDER -> SRTP: save RTP (CREATED)
+      activate SRTP
+      SRTP --> SENDER: created
+      deactivate SRTP
 
-            SENDER -> DSP: POST /sepa-request-to-pay
-            activate DSP
-            alt 202 Accepted
-                DSP --> SENDER: 202 Accepted
-                deactivate DSP
+      alt **oAuth2 == true**
+        SENDER -> CBI: OAuth2 token exchange
+        activate CBI
+        CBI --> SENDER: 200 received access token
+        deactivate CBI
+      end
 
-                SENDER -> SRTP: save RTP (SENT)
-                activate SRTP
-                SRTP --> SENDER: updated
-                deactivate SRTP
+      SENDER -> DSP: POST /sepa-request-to-pay
+      activate DSP
 
-                SENDER --> CONSUMER: 201 Created
-            else Error
-                DSP --> SENDER: Error
-                deactivate DSP
+      alt **202 Accepted**
+        DSP --> SENDER: 202 Accepted
+        deactivate DSP
 
-                loop **retry up to 3 times on error (exhausted → error propagated)**
-                    SENDER -> ADX: save RTP (ERROR_SEND)
-                    activate ADX
-                    ADX --> SENDER: confirm save
-                    deactivate ADX
-                end
-                loop **retry up to 3 times on error (exhausted → error propagated)**
-                    SENDER -> SRTP: delete RTP record
-                    activate SRTP
-                    SRTP --> SENDER: confirm delete
-                    deactivate SRTP
-                end
+        SENDER -> SRTP: save RTP (SENT)
+        activate SRTP
+        SRTP --> SENDER: updated
+        deactivate SRTP
 
-                SENDER --> CONSUMER: 4xx / business error
-            end
+        SENDER --> CONSUMER: **201 Created**
 
-        else payer not activated
-            GR --> SENDER: not found
-            deactivate GR
-            SENDER --> CONSUMER: 404 Not Found
+      else **[ERROR] DSP returned error**
+        DSP --> SENDER: Error
+        deactivate DSP
+
+        loop **retry up to 3 times on error (exhausted → error propagated)**
+          SENDER -> ADX: save RTP (ERROR_SEND)
+          activate ADX
+          ADX --> SENDER: confirm save
+          deactivate ADX
         end
+        loop **retry up to 3 times on error (exhausted → error propagated)**
+          SENDER -> SRTP: delete RTP record
+          activate SRTP
+          SRTP --> SENDER: confirm delete
+          deactivate SRTP
+        end
+
+        SENDER --> CONSUMER: **4xx** / business error
+      end
+
+    else **[NOT FOUND] Payer not activated**
+      GR --> SENDER: not found
+      deactivate GR
+      SENDER --> CONSUMER: **404 Not Found**
     end
+  end
 end
 
 deactivate SENDER
