@@ -97,14 +97,18 @@ else **[NEW] Idempotency-Key not present**
 
         else **Error response**
           SPD --> SENDER: Error (4xx / 5xx)
-          SENDER -> ADX: save RTP record (ERROR_CANCEL)
-          activate ADX
-          ADX --> SENDER: confirm
-          deactivate ADX
-          SENDER -> SRTP: delete RTP record
-          activate SRTP
-          SRTP --> SENDER: confirm
-          deactivate SRTP
+          loop **retry up to 3 times on error (exhausted → error propagated)**
+            SENDER -> ADX: save RTP record (ERROR_CANCEL)
+            activate ADX
+            ADX --> SENDER: confirm
+            deactivate ADX
+          end
+          loop **retry up to 3 times on error (exhausted → error propagated)**
+            SENDER -> SRTP: delete RTP record
+            activate SRTP
+            SRTP --> SENDER: confirm
+            deactivate SRTP
+          end
           SENDER --> CONSUMER: **4xx** / business error
         end
 

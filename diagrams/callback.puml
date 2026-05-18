@@ -66,28 +66,36 @@ alt **[SUCCESS] Certificate verified & callback processed**
     else **Status: REJECTED** (RJCT)
         Handler -> Updater: triggerRejectRtp(Rtp)
         activate Updater
-        Updater -> ADX: Save RTP record
-        activate ADX
-        ADX --> Updater: confirm
-        deactivate ADX
-        Updater -> DB: Delete RTP record
-        activate DB
-        DB --> Updater: confirm
-        deactivate DB
+        loop **retry up to 3 times on error (exhausted → error propagated)**
+            Updater -> ADX: Save RTP record
+            activate ADX
+            ADX --> Updater: confirm
+            deactivate ADX
+        end
+        loop **retry up to 3 times on error (exhausted → error propagated)**
+            Updater -> DB: Delete RTP record
+            activate DB
+            DB --> Updater: confirm
+            deactivate DB
+        end
         Updater --> Handler: updated RTP
         deactivate Updater
 
     else **Status: USER REJECTED**
         Handler -> Updater: triggerUserRejectRtp(Rtp)
         activate Updater
-        Updater -> ADX: Save RTP record
-        activate ADX
-        ADX --> Updater: confirm
-        deactivate ADX
-        Updater -> DB: Delete RTP record
-        activate DB
-        DB --> Updater: confirm
-        deactivate DB
+        loop **retry up to 3 times on error (exhausted → error propagated)**
+            Updater -> ADX: Save RTP record
+            activate ADX
+            ADX --> Updater: confirm
+            deactivate ADX
+        end
+        loop **retry up to 3 times on error (exhausted → error propagated)**
+            Updater -> DB: Delete RTP record
+            activate DB
+            DB --> Updater: confirm
+            deactivate DB
+        end
         Updater --> Handler: updated RTP
         deactivate Updater
     end

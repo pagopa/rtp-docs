@@ -97,15 +97,18 @@ else Idempotency-Key not present
                 DSP --> SENDER: Error
                 deactivate DSP
 
-                SENDER -> ADX: save RTP (ERROR_SEND)
-                activate ADX
-                ADX --> SENDER: confirm save
-                deactivate ADX
-
-                SENDER -> SRTP: delete RTP record
-                activate SRTP
-                SRTP --> SENDER: confirm delete
-                deactivate SRTP
+                loop **retry up to 3 times on error (exhausted → error propagated)**
+                    SENDER -> ADX: save RTP (ERROR_SEND)
+                    activate ADX
+                    ADX --> SENDER: confirm save
+                    deactivate ADX
+                end
+                loop **retry up to 3 times on error (exhausted → error propagated)**
+                    SENDER -> SRTP: delete RTP record
+                    activate SRTP
+                    SRTP --> SENDER: confirm delete
+                    deactivate SRTP
+                end
 
                 SENDER --> CONSUMER: 4xx / business error
             end

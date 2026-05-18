@@ -82,14 +82,18 @@ else **[NEW] Idempotency-Key not present**
         deactivate Registry
 
         alt **PSP BIC matches RTP.serviceProviderDebtor**
-          SENDER -> ADX: save RTP record (PAID)
-          activate ADX
-          ADX --> SENDER: confirm
-          deactivate ADX
-          SENDER -> SRTP: delete RTP record
-          activate SRTP
-          SRTP --> SENDER: confirm
-          deactivate SRTP
+          loop **retry up to 3 times on error (exhausted → error propagated)**
+            SENDER -> ADX: save RTP record (PAID)
+            activate ADX
+            ADX --> SENDER: confirm
+            deactivate ADX
+          end
+          loop **retry up to 3 times on error (exhausted → error propagated)**
+            SENDER -> SRTP: delete RTP record
+            activate SRTP
+            SRTP --> SENDER: confirm
+            deactivate SRTP
+          end
           SENDER --> CONSUMER: **200 OK**
 
         else **PSP BIC does NOT match RTP.serviceProviderDebtor**
@@ -99,26 +103,34 @@ else **[NEW] Idempotency-Key not present**
 
           alt **SP Debtor accepts**
             SPD --> SENDER: 201 Created
-            SENDER -> ADX: save RTP record (CANCELLED_PAID)
-            activate ADX
-            ADX --> SENDER: confirm
-            deactivate ADX
-            SENDER -> SRTP: delete RTP record
-            activate SRTP
-            SRTP --> SENDER: confirm
-            deactivate SRTP
+            loop **retry up to 3 times on error (exhausted → error propagated)**
+              SENDER -> ADX: save RTP record (CANCELLED_PAID)
+              activate ADX
+              ADX --> SENDER: confirm
+              deactivate ADX
+            end
+            loop **retry up to 3 times on error (exhausted → error propagated)**
+              SENDER -> SRTP: delete RTP record
+              activate SRTP
+              SRTP --> SENDER: confirm
+              deactivate SRTP
+            end
             SENDER --> CONSUMER: **200 OK**
 
           else **SP Debtor rejects**
             SPD --> SENDER: Error response
-            SENDER -> ADX: save RTP record (ERROR_CANCEL)
-            activate ADX
-            ADX --> SENDER: confirm
-            deactivate ADX
-            SENDER -> SRTP: delete RTP record
-            activate SRTP
-            SRTP --> SENDER: confirm
-            deactivate SRTP
+            loop **retry up to 3 times on error (exhausted → error propagated)**
+              SENDER -> ADX: save RTP record (ERROR_CANCEL)
+              activate ADX
+              ADX --> SENDER: confirm
+              deactivate ADX
+            end
+            loop **retry up to 3 times on error (exhausted → error propagated)**
+              SENDER -> SRTP: delete RTP record
+              activate SRTP
+              SRTP --> SENDER: confirm
+              deactivate SRTP
+            end
             SENDER --> CONSUMER: **4xx** / business error
           end
 

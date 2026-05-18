@@ -69,14 +69,18 @@ SPC --> Consumer: Processing completed
 else Error
 SPD --> SPC: Error
 deactivate SPD
+loop **retry up to 3 times on error (exhausted → error propagated)**
 SPC -> ADX: save RTP in status ERROR_SEND
 activate ADX
 ADX --> SPC: confirm save
 deactivate ADX
+end
+loop **retry up to 3 times on error (exhausted → error propagated)**
 SPC -> SRTP: delete RTP record
 activate SRTP
 SRTP --> SPC: confirm delete
 deactivate SRTP
+end
 SPC --> Consumer: Processing failed
 end
 else Service Provider is not CBI
