@@ -7,7 +7,7 @@ queue "GPD EventHub" as EH
 participant "Consumer" as C
 participant "Identity Provider" as MA
 participant "Sender" as S
-database "Failed Messages" as DLQ
+database "RTP Failed Messages" as FM
 
 EH -> C : Message payload
 activate C
@@ -35,19 +35,19 @@ alt Validation OK
     S --> C : Error / timeout
     deactivate S
 
-    C -> DLQ : Store failure payload
-    activate DLQ
-    DLQ --> C : Stored
-    deactivate DLQ
+    C -> FM : Store failure payload
+    activate FM
+    FM --> C : Stored
+    deactivate FM
 
     C --> EH : Ack
   end
 
 else Validation failed
-  C -> DLQ : Store invalid payload
-  activate DLQ
-  DLQ --> C : Stored
-  deactivate DLQ
+  C -> FM : Store invalid payload
+  activate FM
+  FM --> C : Stored
+  deactivate FM
 
   C --> EH : Ack
 end
