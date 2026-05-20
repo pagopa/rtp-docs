@@ -7,7 +7,7 @@ queue "GPD EventHub" as EH
 participant "Consumer" as C
 participant "Identity Provider" as MA
 participant "Sender" as S
-database "Dead-letter" as DLQ
+database "Failed Messages" as DLQ
 
 EH -> C : Message payload
 activate C
