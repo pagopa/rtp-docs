@@ -1,11 +1,13 @@
 @startuml
+!theme materia
+
 title RTP Consumer — Message flow (GPD -> RTP)
 
 queue "GPD EventHub" as EH
-participant "rtp-consumer" as C
-participant "mil-auth" as MA
-participant "rtp-sender" as S
-queue "Dead-letter queue" as DLQ
+participant "Consumer" as C
+participant "Identity Provider" as MA
+participant "Sender" as S
+database "Dead-letter" as DLQ
 
 EH -> C : Message payload
 activate C
@@ -33,21 +35,18 @@ alt Validation OK
     S --> C : Error / timeout
     deactivate S
 
-    C -> DLQ : Enqueue failure payload
+    C -> DLQ : Store failure payload
     activate DLQ
-    DLQ --> C : Ack (DLQ)
+    DLQ --> C : Stored
     deactivate DLQ
 
     C --> EH : Ack
   end
 
 else Validation failed
-  C -> DLQ : Enqueue invalid payload
+  C -> DLQ : Store invalid payload
   activate DLQ
-  note right of DLQ
-    Malformed or invalid message.
-  end note
-  DLQ --> C : Ack (DLQ)
+  DLQ --> C : Stored
   deactivate DLQ
 
   C --> EH : Ack
