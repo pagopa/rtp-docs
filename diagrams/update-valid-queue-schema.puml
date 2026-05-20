@@ -95,14 +95,18 @@ else **[NEW] Idempotency-Key not present**
 
         else **Error response**
           SPD --> SENDER: Error response
-          SENDER -> ADX: save RTP record (ERROR_CANCEL)
-          activate ADX
-          ADX --> SENDER: confirm
-          deactivate ADX
-          SENDER -> SRTP: delete RTP record
-          activate SRTP
-          SRTP --> SENDER: confirm
-          deactivate SRTP
+          loop **retry up to 3 times on error (exhausted → error propagated)**
+            SENDER -> ADX: save RTP record (ERROR_CANCEL)
+            activate ADX
+            ADX --> SENDER: confirm
+            deactivate ADX
+          end
+          loop **retry up to 3 times on error (exhausted → error propagated)**
+            SENDER -> SRTP: delete RTP record
+            activate SRTP
+            SRTP --> SENDER: confirm
+            deactivate SRTP
+          end
         end
 
         deactivate SPD
@@ -125,14 +129,18 @@ else **[NEW] Idempotency-Key not present**
             SPD --> SENDER: Error response
             deactivate SPD
             note right of SENDER: Based on SP Debitore response
-            SENDER -> ADX: save RTP record (REJECTED)
-            activate ADX
-            ADX --> SENDER: confirm
-            deactivate ADX
-            SENDER -> SRTP: delete RTP record
-            activate SRTP
-            SRTP --> SENDER: confirm
-            deactivate SRTP
+            loop **retry up to 3 times on error (exhausted → error propagated)**
+              SENDER -> ADX: save RTP record (REJECTED)
+              activate ADX
+              ADX --> SENDER: confirm
+              deactivate ADX
+            end
+            loop **retry up to 3 times on error (exhausted → error propagated)**
+              SENDER -> SRTP: delete RTP record
+              activate SRTP
+              SRTP --> SENDER: confirm
+              deactivate SRTP
+            end
             SENDER --> CONSUMER: **4xx** / business error
           end
 
@@ -170,14 +178,18 @@ else **[NEW] Idempotency-Key not present**
         SPD --> SENDER: Error response
         deactivate SPD
         note right of SENDER: Based on SP Debitore response
-        SENDER -> ADX: save RTP record (REJECTED)
-        activate ADX
-        ADX --> SENDER: confirm
-        deactivate ADX
-        SENDER -> SRTP: delete RTP record
-        activate SRTP
-        SRTP --> SENDER: confirm
-        deactivate SRTP
+        loop **retry up to 3 times on error (exhausted → error propagated)**
+          SENDER -> ADX: save RTP record (REJECTED)
+          activate ADX
+          ADX --> SENDER: confirm
+          deactivate ADX
+        end
+        loop **retry up to 3 times on error (exhausted → error propagated)**
+          SENDER -> SRTP: delete RTP record
+          activate SRTP
+          SRTP --> SENDER: confirm
+          deactivate SRTP
+        end
         SENDER --> CONSUMER: **4xx** / business error
       end
     end
