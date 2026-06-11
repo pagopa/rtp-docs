@@ -41,7 +41,7 @@ else RTP not found in Cosmos
         Service --> Controller : error(RtpNotFoundException)
         deactivate Service
 
-        Controller --> Client : 404 Not Found
+        Controller --> Client : 422 Unprocessable Entity
         deactivate Controller
     end
 end

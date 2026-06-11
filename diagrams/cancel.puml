@@ -108,7 +108,7 @@ else **[NEW] Idempotency-Key not present**
         end
 
     else **[NOT FOUND] RTP not in SRTP or ADX**
-        SENDER --> CONSUMER: **404 Not Found**
+        SENDER --> CONSUMER: **422 Unprocessable Entity**
     end
 
 end
