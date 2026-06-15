@@ -42,7 +42,7 @@ else **[NEW] Idempotency-Key not present**
   SENDER -> SENDER: validate message & operation == CREATE & status == VALID
 
   alt **[INVALID STATUS] Message status is not VALID**
-    SENDER --> CONSUMER: **400 Bad Request**
+    SENDER --> CONSUMER: **422 Unprocessable Entity**
 
   else **[VALID] Message status is VALID**
     SENDER -> SENDER: map message to RTP
@@ -114,7 +114,7 @@ else **[NEW] Idempotency-Key not present**
     else **[NOT FOUND] Payer not activated**
       GR --> SENDER: not found
       deactivate GR
-      SENDER --> CONSUMER: **404 Not Found**
+      SENDER --> CONSUMER: **422 Unprocessable Entity**
     end
   end
 end
