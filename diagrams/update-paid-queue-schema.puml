@@ -48,7 +48,7 @@ else **[NEW] Idempotency-Key not present**
       Unsupported statuses:
       PARTIALLY_PAID, PUBLISHED
     end note
-    SENDER --> CONSUMER: **400 Bad Request**
+    SENDER --> CONSUMER: **422 Unprocessable Entity**
 
   else **[SUPPORTED] Message status is valid**
     SENDER -> SENDER: map message to RTP
