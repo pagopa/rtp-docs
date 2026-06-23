@@ -1,0 +1,63 @@
+@startuml
+' PlantUML Diagram for RTP Payer Active Status API
+' Title: Payer Active Status Check Sequence Diagram
+' Version: 1.0.0
+'
+!theme materia
+
+skinparam SequenceBoxBackgroundColor white
+skinparam backgroundColor white
+
+title Payer Status API: GET /activations/payer/{payerId}/status
+
+actor "**Payer's Service Provider**" as DSP
+participant "**Activation Service**" as AS
+database "**Database**" as DB
+
+autonumber "<b>[0]"
+
+DSP -> AS: **GET** /activations/payer/{payerId}/status\n<font color=gray>Headers: Version, RequestId</font>
+activate AS
+
+AS -> DB: `findByFiscalCode(payerId)`
+activate DB
+DB --> AS: Returns Activation document
+deactivate DB
+
+alt **role: read_rtp_activations**
+
+    AS -> AS: Check `sub` == `serviceProviderDebtor`
+    note right of AS: If the document belongs to a different DSP, it is filtered out.
+
+else **role: read_rtp_all**
+
+    note right of AS: No service-provider ownership filtering is applied.
+
+end
+
+alt **Record Found**
+
+    AS --> DSP: **200 OK**\n`{ "isActive": true }`
+
+
+else **Record Not Found / Filtered**
+
+    AS --> DSP: **200 OK**\n`{ "isActive": false }`
+    note right of AS: No document found (or record filtered out).\nTreated identically to an unauthorized\nread to prevent information disclosure.
+
+
+else **Error Cases**
+
+    group Format Validation Error
+        AS --> DSP: **400 Bad Request**
+    end group
+
+    group Authentication / Authorization Error
+        AS --> DSP: **401 Unauthorized** / **403 Forbidden**
+    end group
+
+end
+
+deactivate AS
+
+@enduml
