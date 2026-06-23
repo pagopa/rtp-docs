@@ -27,7 +27,7 @@ deactivate DB
 alt **role: read_rtp_activations**
 
     AS -> AS: Check `sub` == `serviceProviderDebtor`
-    note right of AS: If the document belongs to a different DPS, it is filtered out.
+    note right of AS: If the document belongs to a different DSP, it is filtered out.
 
 else **role: read_rtp_all**
 
