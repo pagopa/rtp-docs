@@ -31,6 +31,8 @@ alt **role: read_rtp_activations**
 
 else **role: read_rtp_all**
 
+    note right of AS: No service-provider ownership filtering is applied.
+
 end
 
 alt **Record Found**
