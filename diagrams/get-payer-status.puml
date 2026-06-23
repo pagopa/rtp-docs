@@ -38,10 +38,10 @@ alt **Record Found**
     AS --> DSP: **200 OK**\n`{ "isActive": true }`
 
 
-else **Record Not Found**
+else **Record Not Found / Filtered**
 
     AS --> DSP: **200 OK**\n`{ "isActive": false }`
-    note right of AS: No document found.\nTreated identically to an unauthorized\nread to prevent information disclosure.
+    note right of AS: No document found (or record filtered out).\nTreated identically to an unauthorized\nread to prevent information disclosure.
 
 
 else **Error Cases**
