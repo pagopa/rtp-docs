@@ -1,8 +1,8 @@
+@startuml
 ' PlantUML Diagram for RTP Payer Active Status API
 ' Title: Payer Active Status Check Sequence Diagram
 ' Version: 1.0.0
-
-@startuml
+'
 !theme materia
 
 skinparam SequenceBoxBackgroundColor white
