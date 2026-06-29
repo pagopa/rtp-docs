@@ -102,6 +102,7 @@ alt **[SUCCESS] Payer active — 200**
 
     else **[PARTIAL] 201 Created with empty body**
       EPC --> SIDECAR: 201 (no body)
+      deactivate EPC
       activate SIDECAR
       SIDECAR --> SERVICE: 201 (no body)
       deactivate SIDECAR
@@ -285,7 +286,5 @@ else **[ERROR] Unexpected error**
   deactivate CONTROLLER
 
 end
-
-deactivate CONTROLLER
 
 @enduml
