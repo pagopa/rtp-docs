@@ -22,33 +22,13 @@ activate CONTROLLER
 CONTROLLER -> CONTROLLER: RtpDtoMapper: map payload → Rtp\nextract serviceProviderCreditor from Bearer (subject claim)
 
 CONTROLLER -> SERVICE: send(rtp)
+deactivate CONTROLLER
 activate SERVICE
 
 SERVICE -> ACTIVATOR: **GET** /activations/payer\nHeaders: RequestId (UUID), Version: v2\nQuery: payerId
 activate ACTIVATOR
 
-alt **[NOT ACTIVE] Payer not activated — 404**
-  ACTIVATOR --[#red]> SERVICE: 404 Not Found
-  deactivate ACTIVATOR
-  SERVICE --[#red]> CONTROLLER: PayerNotActivatedException
-  deactivate SERVICE
-  CONTROLLER --[#red]> CLIENT: **422 Unprocessable Entity**\n(PayerNotActivatedException)
-
-else **[INVALID REQUEST] Malformed request — 400**
-  ACTIVATOR --[#red]> SERVICE: 400 Bad Request
-  deactivate ACTIVATOR
-  SERVICE --[#red]> CONTROLLER: MessageBadFormed
-  deactivate SERVICE
-  CONTROLLER --[#red]> CLIENT: **400 Bad Request**\n(MessageBadFormed)
-
-else **[ERROR] Unexpected error**
-  ACTIVATOR --[#red]> SERVICE: error
-  deactivate ACTIVATOR
-  SERVICE --[#red]> CONTROLLER: RuntimeException
-  deactivate SERVICE
-  CONTROLLER --[#red]> CLIENT: **500 Internal Server Error**\n(RuntimeException)
-
-else **[SUCCESS] Payer active — 200**
+alt **[SUCCESS] Payer active — 200**
   ACTIVATOR --> SERVICE: 200 OK\n{payer: {fiscalCode, rtpSpId}, id, effectiveActivationDate}
   deactivate ACTIVATOR
 
@@ -70,14 +50,7 @@ else **[SUCCESS] Payer active — 200**
   SERVICE -> SR: **RegistryDataHandler**: read serviceregistry.json\nBlob container: rtp-debtor-service-provider\nKey: serviceProviderDebtor
   activate SR
 
-  alt **[SP NOT FOUND] Provider not in registry**
-    SR --[#red]> SERVICE: not found
-    deactivate SR
-    SERVICE --[#red]> CONTROLLER: ServiceProviderNotFoundException
-    deactivate SERVICE
-    CONTROLLER --[#red]> CLIENT: **422 Unprocessable Entity**\n(ServiceProviderNotFoundException)
-
-  else **[SP FOUND] Provider found**
+  alt **[SP FOUND] Provider found**
     SR --> SERVICE: SP data (spName, tsp, oauth2 config, ...)
     deactivate SR
     SERVICE -> SERVICE: update EpcRequest with SP data
@@ -123,14 +96,16 @@ else **[SUCCESS] Payer active — 200**
 
       SERVICE --> CONTROLLER: rtp
       deactivate SERVICE
+      activate CONTROLLER
       CONTROLLER --> CLIENT: **201 Created**\nLocation: <baseUrl>/<resourceId>
       deactivate CONTROLLER
 
     else **[PARTIAL] 201 Created with empty body**
       EPC --> SIDECAR: 201 (no body)
-      deactivate EPC
+      activate SIDECAR
       SIDECAR --> SERVICE: 201 (no body)
       deactivate SIDECAR
+      activate SERVICE
 
       SERVICE -> MONGO: triggerSendRtp → state: **SEND**
       activate MONGO
@@ -140,13 +115,17 @@ else **[SUCCESS] Payer active — 200**
 
       SERVICE --> CONTROLLER: rtp
       deactivate SERVICE
+      activate CONTROLLER
       CONTROLLER --> CLIENT: **201 Created**\nLocation: <baseUrl>/<resourceId>
+      deactivate CONTROLLER
 
     else **[REJECTED by SP] 4xx with body (TxSts: RJCT)**
       EPC --[#red]> SIDECAR: 4xx + body (TxSts: RJCT)
       deactivate EPC
+      activate SIDECAR
       SIDECAR --[#red]> SERVICE: 4xx + body (txStatus: RJCT)
       deactivate SIDECAR
+      activate SERVICE
 
       SERVICE -> MONGO: triggerSendRtp → state: **SEND**
       activate MONGO
@@ -179,14 +158,18 @@ else **[SUCCESS] Payer active — 200**
 
       SERVICE --[#red]> CONTROLLER: SendRequestRejectedException
       deactivate SERVICE
+      activate CONTROLLER
       CONTROLLER --[#red]> CLIENT: **422 Unprocessable Entity**\n(SendRequestRejectedException)
+      deactivate CONTROLLER
 
     else **[CLIENT ERROR] 4xx without RJCT**
       EPC --[#red]> SIDECAR: 4xx (no RJCT)
       deactivate EPC
+      activate SIDECAR
       SIDECAR --[#red]> SERVICE: 4xx
       deactivate SIDECAR
 
+      activate SERVICE
       SERVICE -> MONGO: triggerRejectRtp → state: **ERROR_SEND**
       activate MONGO
       MONGO --> SERVICE: updated
@@ -214,14 +197,18 @@ else **[SUCCESS] Payer active — 200**
 
       SERVICE --[#red]> CONTROLLER: SepaRequestException
       deactivate SERVICE
+      activate CONTROLLER
       CONTROLLER --[#red]> CLIENT: **422 Unprocessable Entity**\n(SepaRequestException)
+      deactivate CONTROLLER
 
     else **[SERVER ERROR] 5xx**
       EPC --[#red]> SIDECAR: 5xx
       deactivate EPC
+      activate SIDECAR
       SIDECAR --[#red]> SERVICE: 5xx
       deactivate SIDECAR
 
+      activate SERVICE
       SERVICE -> MONGO: triggerErrorSendRtp → state: **ERROR_SEND**
       activate MONGO
       MONGO --> SERVICE: updated
@@ -249,10 +236,54 @@ else **[SUCCESS] Payer active — 200**
 
       SERVICE --[#red]> CONTROLLER: SepaRequestException
       deactivate SERVICE
+      activate CONTROLLER
       CONTROLLER --[#red]> CLIENT: **500 Internal Server Error**\n(SepaRequestException)
+      deactivate CONTROLLER
 
     end
+
+  else **[SP NOT FOUND] Provider not in registry**
+    SR --[#red]> SERVICE: not found
+    deactivate SR
+    activate SERVICE
+    SERVICE --[#red]> CONTROLLER: ServiceProviderNotFoundException
+    deactivate SERVICE
+    activate CONTROLLER
+    CONTROLLER --[#red]> CLIENT: **422 Unprocessable Entity**\n(ServiceProviderNotFoundException)
+    deactivate CONTROLLER
+
   end
+
+else **[NOT ACTIVE] Payer not activated — 404**
+  ACTIVATOR --[#red]> SERVICE: 404 Not Found
+  deactivate ACTIVATOR
+  activate SERVICE
+  SERVICE --[#red]> CONTROLLER: PayerNotActivatedException
+  deactivate SERVICE
+  activate CONTROLLER
+  CONTROLLER --[#red]> CLIENT: **422 Unprocessable Entity**\n(PayerNotActivatedException)
+  deactivate CONTROLLER
+
+else **[INVALID REQUEST] Malformed request — 400**
+  ACTIVATOR --[#red]> SERVICE: 400 Bad Request
+  deactivate ACTIVATOR
+  activate SERVICE
+  SERVICE --[#red]> CONTROLLER: MessageBadFormed
+  deactivate SERVICE
+  activate CONTROLLER
+  CONTROLLER --[#red]> CLIENT: **400 Bad Request**\n(MessageBadFormed)
+  deactivate CONTROLLER
+
+else **[ERROR] Unexpected error**
+  ACTIVATOR --[#red]> SERVICE: error
+  deactivate ACTIVATOR
+  activate SERVICE
+  SERVICE --[#red]> CONTROLLER: RuntimeException
+  deactivate SERVICE
+  activate CONTROLLER
+  CONTROLLER --[#red]> CLIENT: **500 Internal Server Error**\n(RuntimeException)
+  deactivate CONTROLLER
+
 end
 
 deactivate CONTROLLER
