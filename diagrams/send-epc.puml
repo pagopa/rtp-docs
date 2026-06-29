@@ -102,10 +102,10 @@ else **[SUCCESS] Payer active — 200**
       Attempt 1: ~2s | Attempt 2: ~4s | Attempt 3: ~8s
     end note
 
-    SIDECAR -> EPC: POST /sepa-request-to-pay-requests/ -> pain.013
+    SIDECAR -> EPC: POST /sepa-request-to-pay-requests/ → pain.013
     activate EPC
 
-    alt **[SUCCESS] 201 Accepted with body (TxSts: ACTC))**
+    alt **[SUCCESS] 201 Created with body (TxSts: ACTC)**
       EPC --> SIDECAR: 201 + body (TxSts: ACTC)
       deactivate EPC
       SIDECAR --> SERVICE: 201 + body
@@ -124,8 +124,9 @@ else **[SUCCESS] Payer active — 200**
       SERVICE --> CONTROLLER: rtp
       deactivate SERVICE
       CONTROLLER --> CLIENT: **201 Created**\nLocation: <baseUrl>/<resourceId>
+      deactivate CONTROLLER
 
-    else **[PARTIAL] 201 Accepted with empty body**
+    else **[PARTIAL] 201 Created with empty body**
       EPC --> SIDECAR: 201 (no body)
       deactivate EPC
       SIDECAR --> SERVICE: 201 (no body)
