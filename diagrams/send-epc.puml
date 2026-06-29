@@ -102,13 +102,13 @@ else **[SUCCESS] Payer active — 200**
       Attempt 1: ~2s | Attempt 2: ~4s | Attempt 3: ~8s
     end note
 
-    SIDECAR -> EPC: POST pain.013 → APIM / EPC SP
+    SIDECAR -> EPC: POST /sepa-request-to-pay-requests/ -> pain.013
     activate EPC
 
-    alt **[SUCCESS] 202 Accepted with body (txStatus accepted)**
-      EPC --> SIDECAR: 202 + body
+    alt **[SUCCESS] 201 Accepted with body (TxSts: ACTC))**
+      EPC --> SIDECAR: 201 + body (TxSts: ACTC)
       deactivate EPC
-      SIDECAR --> SERVICE: 202 + body
+      SIDECAR --> SERVICE: 201 + body
       deactivate SIDECAR
 
       SERVICE -> MONGO: triggerSendRtp → state: **SEND**
@@ -125,10 +125,10 @@ else **[SUCCESS] Payer active — 200**
       deactivate SERVICE
       CONTROLLER --> CLIENT: **201 Created**\nLocation: <baseUrl>/<resourceId>
 
-    else **[PARTIAL] 202 Accepted with empty body**
-      EPC --> SIDECAR: 202 (no body)
+    else **[PARTIAL] 201 Accepted with empty body**
+      EPC --> SIDECAR: 201 (no body)
       deactivate EPC
-      SIDECAR --> SERVICE: 202 (no body)
+      SIDECAR --> SERVICE: 201 (no body)
       deactivate SIDECAR
 
       SERVICE -> MONGO: triggerSendRtp → state: **SEND**
@@ -141,10 +141,10 @@ else **[SUCCESS] Payer active — 200**
       deactivate SERVICE
       CONTROLLER --> CLIENT: **201 Created**\nLocation: <baseUrl>/<resourceId>
 
-    else **[REJECTED by SP] 4xx with txStatus: RJCT**
-      EPC --[#red]> SIDECAR: 4xx + txStatus: RJCT
+    else **[REJECTED by SP] 4xx with body (TxSts: RJCT)**
+      EPC --[#red]> SIDECAR: 4xx + body (TxSts: RJCT)
       deactivate EPC
-      SIDECAR --[#red]> SERVICE: 4xx + txStatus: RJCT
+      SIDECAR --[#red]> SERVICE: 4xx + body (txStatus: RJCT)
       deactivate SIDECAR
 
       SERVICE -> MONGO: triggerSendRtp → state: **SEND**
