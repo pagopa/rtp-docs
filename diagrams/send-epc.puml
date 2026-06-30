@@ -1,0 +1,290 @@
+@startuml
+!theme materia
+
+title RTP Send Flow — POST /rtps
+
+actor "**Client**" as CLIENT
+participant "**SendAPIControllerImpl**" as CONTROLLER
+participant "**SendRTPServiceImpl**" as SERVICE
+participant "**MS-ACTIVATOR**\n(rtp-activator)" as ACTIVATOR
+database "**RTPS**\n(MongoDB)" as MONGO
+database "**Service Registry**\n(Azure Blob Storage)" as SR
+participant "**OAuth2 Provider**" as OAUTH
+participant "**Sidecar**\n(sidecar-epc-proxy)" as SIDECAR
+participant "**EPC SP**" as EPC
+database "**Azure Data Explorer**\n(SRTP)" as ADX
+
+autonumber "<b>[0]"
+
+CLIENT -> CONTROLLER: **POST** /rtps\nHeaders: Authorization (Bearer), RequestId, Version: v2\nBody: {payee, payer, paymentNotice}
+activate CONTROLLER
+
+CONTROLLER -> CONTROLLER: RtpDtoMapper: map payload → Rtp\nextract serviceProviderCreditor from Bearer (subject claim)
+
+CONTROLLER -> SERVICE: send(rtp)
+deactivate CONTROLLER
+activate SERVICE
+
+SERVICE -> ACTIVATOR: **GET** /activations/payer\nHeaders: RequestId (UUID), Version: v2\nQuery: payerId
+activate ACTIVATOR
+
+alt **[SUCCESS] Payer active — 200**
+  ACTIVATOR --> SERVICE: 200 OK\n{payer: {fiscalCode, rtpSpId}, id, effectiveActivationDate}
+  deactivate ACTIVATOR
+
+  SERVICE -> SERVICE: extract rtpSpId → serviceProviderDebtor
+
+  SERVICE -> MONGO: save Rtp (state: **CREATED**)
+  activate MONGO
+  MONGO --> SERVICE: saved
+  deactivate MONGO
+
+  note right of SERVICE
+    sendRtpProcessor.processRtp(rtp)
+    → BaseRtpProcessor: chain of handlers
+    1. RegistryDataHandler
+    2. Oauth2Handler
+    3. SidecarSendRtpHandler
+  end note
+
+  SERVICE -> SR: **RegistryDataHandler**: read serviceregistry.json\nBlob container: rtp-debtor-service-provider\nKey: serviceProviderDebtor
+  activate SR
+
+  alt **[SP FOUND] Provider found**
+    SR --> SERVICE: SP data (spName, tsp, oauth2 config, ...)
+    deactivate SR
+    SERVICE -> SERVICE: update EpcRequest with SP data
+
+    opt **[OAUTH2] oauth2 field present in TSP config → Oauth2Handler**
+      SERVICE -> OAUTH: request OAuth2 token
+      activate OAUTH
+      OAUTH --> SERVICE: access token
+      deactivate OAUTH
+      SERVICE -> SERVICE: inject access token into EpcRequest
+    end
+
+    SERVICE -> SERVICE: **SidecarSendRtpHandler**:\nSidecarRequestMapper → build pain.013 payload
+
+    SERVICE -> SIDECAR: **POST** /proxy/v1/send (pain.013)
+    activate SIDECAR
+
+    note right of SIDECAR
+      axios-retry: max 3 attempts
+      Retry on 5xx only (no retry on 400 / 409)
+      Backoff: 2^n × 1000ms + 75% jitter
+      Attempt 1: ~2s | Attempt 2: ~4s | Attempt 3: ~8s
+    end note
+
+    SIDECAR -> EPC: POST /sepa-request-to-pay-requests/ → pain.013
+    activate EPC
+
+    alt **[SUCCESS] 201 Created with body (TxSts: ACTC)**
+      EPC --> SIDECAR: 201 + body (TxSts: ACTC)
+      deactivate EPC
+      SIDECAR --> SERVICE: 201 + body
+      deactivate SIDECAR
+
+      SERVICE -> MONGO: triggerSendRtp → state: **SEND**
+      activate MONGO
+      MONGO --> SERVICE: updated
+      deactivate MONGO
+      SERVICE -> MONGO: triggerAcceptRtp → state: **ACCEPTED**
+      activate MONGO
+      MONGO --> SERVICE: updated
+      deactivate MONGO
+      note right of SERVICE: CREATED → SEND → ACCEPTED
+
+      SERVICE --> CONTROLLER: rtp
+      deactivate SERVICE
+      activate CONTROLLER
+      CONTROLLER --> CLIENT: **201 Created**\nLocation: <baseUrl>/<resourceId>
+      deactivate CONTROLLER
+
+    else **[PARTIAL] 201 Created with empty body**
+      EPC --> SIDECAR: 201 (no body)
+      deactivate EPC
+      activate SIDECAR
+      SIDECAR --> SERVICE: 201 (no body)
+      deactivate SIDECAR
+      activate SERVICE
+
+      SERVICE -> MONGO: triggerSendRtp → state: **SEND**
+      activate MONGO
+      MONGO --> SERVICE: updated
+      deactivate MONGO
+      note right of SERVICE: CREATED → SEND
+
+      SERVICE --> CONTROLLER: rtp
+      deactivate SERVICE
+      activate CONTROLLER
+      CONTROLLER --> CLIENT: **201 Created**\nLocation: <baseUrl>/<resourceId>
+      deactivate CONTROLLER
+
+    else **[REJECTED by SP] 4xx with body (TxSts: RJCT)**
+      EPC --[#red]> SIDECAR: 4xx + body (TxSts: RJCT)
+      deactivate EPC
+      activate SIDECAR
+      SIDECAR --[#red]> SERVICE: 4xx + body (txStatus: RJCT)
+      deactivate SIDECAR
+      activate SERVICE
+
+      SERVICE -> MONGO: triggerSendRtp → state: **SEND**
+      activate MONGO
+      MONGO --> SERVICE: updated
+      deactivate MONGO
+      SERVICE -> MONGO: triggerRejectRtp → state: **REJECTED**
+      activate MONGO
+      MONGO --> SERVICE: updated
+      deactivate MONGO
+      note right of SERVICE: CREATED → SEND → REJECTED
+
+      loop **retry up to 3 times on error (exhausted → error propagated)**
+        SERVICE -> ADX: [async] save RTP record (final state)
+        activate ADX
+        ADX --> SERVICE: confirm
+        deactivate ADX
+      end
+      loop **retry up to 3 times on error (exhausted → error propagated)**
+        SERVICE -> ADX: [async] save RTP events
+        activate ADX
+        ADX --> SERVICE: confirm
+        deactivate ADX
+      end
+      loop **retry up to 3 times on error (exhausted → error propagated)**
+        SERVICE -> MONGO: delete RTP record
+        activate MONGO
+        MONGO --> SERVICE: confirm delete
+        deactivate MONGO
+      end
+
+      SERVICE --[#red]> CONTROLLER: SendRequestRejectedException
+      deactivate SERVICE
+      activate CONTROLLER
+      CONTROLLER --[#red]> CLIENT: **422 Unprocessable Entity**\n(SendRequestRejectedException)
+      deactivate CONTROLLER
+
+    else **[CLIENT ERROR] 4xx without RJCT**
+      EPC --[#red]> SIDECAR: 4xx (no RJCT)
+      deactivate EPC
+      activate SIDECAR
+      SIDECAR --[#red]> SERVICE: 4xx
+      deactivate SIDECAR
+
+      activate SERVICE
+      SERVICE -> MONGO: triggerRejectRtp → state: **ERROR_SEND**
+      activate MONGO
+      MONGO --> SERVICE: updated
+      deactivate MONGO
+      note right of SERVICE: CREATED → ERROR_SEND
+
+      loop **retry up to 3 times on error (exhausted → error propagated)**
+        SERVICE -> ADX: [async] save RTP record (final state)
+        activate ADX
+        ADX --> SERVICE: confirm
+        deactivate ADX
+      end
+      loop **retry up to 3 times on error (exhausted → error propagated)**
+        SERVICE -> ADX: [async] save RTP events
+        activate ADX
+        ADX --> SERVICE: confirm
+        deactivate ADX
+      end
+      loop **retry up to 3 times on error (exhausted → error propagated)**
+        SERVICE -> MONGO: delete RTP record
+        activate MONGO
+        MONGO --> SERVICE: confirm delete
+        deactivate MONGO
+      end
+
+      SERVICE --[#red]> CONTROLLER: SepaRequestException
+      deactivate SERVICE
+      activate CONTROLLER
+      CONTROLLER --[#red]> CLIENT: **422 Unprocessable Entity**\n(SepaRequestException)
+      deactivate CONTROLLER
+
+    else **[SERVER ERROR] 5xx**
+      EPC --[#red]> SIDECAR: 5xx
+      deactivate EPC
+      activate SIDECAR
+      SIDECAR --[#red]> SERVICE: 5xx
+      deactivate SIDECAR
+
+      activate SERVICE
+      SERVICE -> MONGO: triggerErrorSendRtp → state: **ERROR_SEND**
+      activate MONGO
+      MONGO --> SERVICE: updated
+      deactivate MONGO
+      note right of SERVICE: CREATED → ERROR_SEND
+
+      loop **retry up to 3 times on error (exhausted → error propagated)**
+        SERVICE -> ADX: [async] save RTP record (final state)
+        activate ADX
+        ADX --> SERVICE: confirm
+        deactivate ADX
+      end
+      loop **retry up to 3 times on error (exhausted → error propagated)**
+        SERVICE -> ADX: [async] save RTP events
+        activate ADX
+        ADX --> SERVICE: confirm
+        deactivate ADX
+      end
+      loop **retry up to 3 times on error (exhausted → error propagated)**
+        SERVICE -> MONGO: delete RTP record
+        activate MONGO
+        MONGO --> SERVICE: confirm delete
+        deactivate MONGO
+      end
+
+      SERVICE --[#red]> CONTROLLER: SepaRequestException
+      deactivate SERVICE
+      activate CONTROLLER
+      CONTROLLER --[#red]> CLIENT: **500 Internal Server Error**\n(SepaRequestException)
+      deactivate CONTROLLER
+
+    end
+
+  else **[SP NOT FOUND] Provider not in registry**
+    SR --[#red]> SERVICE: not found
+    deactivate SR
+    activate SERVICE
+    SERVICE --[#red]> CONTROLLER: ServiceProviderNotFoundException
+    deactivate SERVICE
+    activate CONTROLLER
+    CONTROLLER --[#red]> CLIENT: **422 Unprocessable Entity**\n(ServiceProviderNotFoundException)
+    deactivate CONTROLLER
+
+  end
+
+else **[NOT ACTIVE] Payer not activated — 404**
+  ACTIVATOR --[#red]> SERVICE: 404 Not Found
+  deactivate ACTIVATOR
+  activate SERVICE
+  SERVICE --[#red]> CONTROLLER: PayerNotActivatedException
+  deactivate SERVICE
+  activate CONTROLLER
+  CONTROLLER --[#red]> CLIENT: **422 Unprocessable Entity**\n(PayerNotActivatedException)
+  deactivate CONTROLLER
+
+else **[INVALID REQUEST] Malformed request — 400**
+  ACTIVATOR --[#red]> SERVICE: 400 Bad Request
+  deactivate ACTIVATOR
+  activate SERVICE
+  SERVICE --[#red]> CONTROLLER: MessageBadFormed
+  deactivate SERVICE
+  activate CONTROLLER
+  CONTROLLER --[#red]> CLIENT: **400 Bad Request**\n(MessageBadFormed)
+  deactivate CONTROLLER
+
+else **[ERROR] Unexpected error**
+  ACTIVATOR --[#red]> SERVICE: error
+  deactivate ACTIVATOR
+  activate SERVICE
+  SERVICE --[#red]> CONTROLLER: RuntimeException
+  deactivate SERVICE
+  activate CONTROLLER
+  CONTROLLER --[#red]> CLIENT: **500 Internal Server Error**\n(RuntimeException)
+  deactivate CONTROLLER
+
+end
+
+@enduml
