@@ -4,7 +4,7 @@
 title RTP Send Flow — POST /rtps
 
 actor "**Client**" as CLIENT
-participant "**MS-SENDER**" as SENDER
+participant "**MS-SENDER**\n(rtp-sender-v2)" as SENDER
 participant "**MS-ACTIVATOR**\n(rtp-activator)" as ACTIVATOR
 database "**RTPS**\n(MongoDB)" as MONGO
 database "**Service Registry**\n(Azure Blob Storage)" as SR
@@ -15,40 +15,27 @@ database "**Azure Data Explorer**\n(SRTP)" as ADX
 
 autonumber "<b>[0]"
 
-CLIENT -> SENDER: **POST** /rtps\nHeaders: Authorization (Bearer), RequestId, Version: v2\nBody: {payee, payer, paymentNotice}
+CLIENT -> SENDER: **POST** /rtps
 activate SENDER
 
-SENDER -> SENDER: RtpDtoMapper: map payload → Rtp\nextract serviceProviderCreditor from Bearer (subject claim)
-
-SENDER -> ACTIVATOR: **GET** /activations/payer\nHeaders: RequestId (UUID), Version: v2\nQuery: payerId
+SENDER -> ACTIVATOR: **GET** /activations/payer
 activate ACTIVATOR
 
 alt **[SUCCESS] Payer active — 200**
-  ACTIVATOR --> SENDER: 200 OK\n{payer: {fiscalCode, rtpSpId}, id, effectiveActivationDate}
+  ACTIVATOR --> SENDER: 200 OK\nactivation data
   deactivate ACTIVATOR
-
-  SENDER -> SENDER: extract rtpSpId → serviceProviderDebtor
 
   SENDER -> MONGO: save Rtp (state: **CREATED**)
   activate MONGO
   MONGO --> SENDER: saved
   deactivate MONGO
 
-  note right of SENDER
-    sendRtpProcessor.processRtp(rtp)
-    → BaseRtpProcessor: chain of handlers
-    1. RegistryDataHandler
-    2. Oauth2Handler
-    3. SidecarSendRtpHandler
-  end note
-
-  SENDER -> SR: **RegistryDataHandler**: read serviceregistry.json\nBlob container: rtp-debtor-service-provider\nKey: serviceProviderDebtor
+  SENDER -> SR: **RegistryDataHandler**: read serviceregistry.json
   activate SR
 
   alt **[SP FOUND] Provider found**
-    SR --> SENDER: SP data (spName, tsp, oauth2 config, ...)
+    SR --> SENDER: SP data
     deactivate SR
-    SENDER -> SENDER: update EpcRequest with SP data
 
     opt **[OAUTH2] oauth2 field present in TSP config → Oauth2Handler**
       SENDER -> OAUTH: request OAuth2 token
@@ -58,7 +45,7 @@ alt **[SUCCESS] Payer active — 200**
       SENDER -> SENDER: inject access token into EpcRequest
     end
 
-    SENDER -> SENDER: **SidecarSendRtpHandler**:\nSidecarRequestMapper → build pain.013 payload
+    SENDER -> SENDER: build pain.013 payload
 
     SENDER -> SIDECAR: **POST** /proxy/v1/send (pain.013)
     activate SIDECAR
@@ -76,7 +63,7 @@ alt **[SUCCESS] Payer active — 200**
     alt **[SUCCESS] 201 Created with body (TxSts: ACTC)**
       EPC --> SIDECAR: 201 + body (TxSts: ACTC)
       deactivate EPC
-      SIDECAR --> SENDER: 201 + body
+      SIDECAR --> SENDER: 201 + body (TxStatus: ACTC)
       deactivate SIDECAR
 
       SENDER -> MONGO: triggerSendRtp → state: **SEND**
@@ -89,7 +76,7 @@ alt **[SUCCESS] Payer active — 200**
       deactivate MONGO
       note right of SENDER: CREATED → SEND → ACCEPTED
 
-      SENDER --> CLIENT: **201 Created**\nLocation: <baseUrl>/<resourceId>
+      SENDER --> CLIENT: **201 Created**
       deactivate SENDER
 
     else **[PARTIAL] 201 Created with empty body**
@@ -106,7 +93,7 @@ alt **[SUCCESS] Payer active — 200**
       deactivate MONGO
       note right of SENDER: CREATED → SEND
 
-      SENDER --> CLIENT: **201 Created**\nLocation: <baseUrl>/<resourceId>
+      SENDER --> CLIENT: **201 Created**
       deactivate SENDER
 
     else **[REJECTED by SP] 4xx with body (TxSts: RJCT)**
