@@ -55,13 +55,13 @@ alt **[SUCCESS] Payer active — 200**
     end note
 
     SIDECAR -> EPC: POST /sepa-request-to-pay-requests/ → pain.013
-    deactivate SIDECAR
     activate EPC
 
     alt **[SUCCESS] 201 Created with body (TxSts: ACTC)**
       EPC --> SIDECAR: 201 + body (TxSts: ACTC)
       deactivate EPC
       SIDECAR --> SENDER: 201 + body (TxStatus: ACTC)
+      deactivate SIDECAR
 
       SENDER -> MONGO: triggerSendRtp → state: **SEND**
       activate MONGO
@@ -79,6 +79,7 @@ alt **[SUCCESS] Payer active — 200**
       EPC --> SIDECAR: 201 (no body)
       deactivate EPC
       SIDECAR --> SENDER: 201 (no body)
+      deactivate SIDECAR
 
       SENDER -> MONGO: triggerSendRtp → state: **SEND**
       activate MONGO
@@ -92,6 +93,7 @@ alt **[SUCCESS] Payer active — 200**
       EPC --[#red]> SIDECAR: 4xx + body (TxSts: RJCT)
       deactivate EPC
       SIDECAR --[#red]> SENDER: 4xx + body (txStatus: RJCT)
+      deactivate SIDECAR
 
       SENDER -> MONGO: triggerSendRtp → state: **SEND**
       activate MONGO
@@ -128,6 +130,7 @@ alt **[SUCCESS] Payer active — 200**
       EPC --[#red]> SIDECAR: 4xx (no RJCT)
       deactivate EPC
       SIDECAR --[#red]> SENDER: 4xx
+      deactivate SIDECAR
 
       SENDER -> MONGO: triggerRejectRtp → state: **ERROR_SEND**
       activate MONGO
@@ -160,6 +163,7 @@ alt **[SUCCESS] Payer active — 200**
       EPC --[#red]> SIDECAR: 5xx
       deactivate EPC
       SIDECAR --[#red]> SENDER: 5xx
+      deactivate SIDECAR
 
       SENDER -> MONGO: triggerErrorSendRtp → state: **ERROR_SEND**
       activate MONGO
