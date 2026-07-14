@@ -1,0 +1,108 @@
+@startuml
+!theme materia
+
+title RTP Cancel Flow — POST /rtps/cancel (EPC)
+
+actor "**Client (PSP)**" as CLIENT
+participant "**RTP Sender API**" as SENDER
+database "**RTP Store**" as STORE
+participant "**Registry Service**" as REGISTRY
+participant "**DSP Identity Provider**" as IDP
+participant "**Sidecar**\n(EPC Proxy)" as SIDECAR
+participant "**EPC DSP**\n(Counterpart PSP)" as EPC
+
+autonumber "<b>[0]"
+
+CLIENT -> SENDER: **POST** /rtps/cancel\n(RTP resource id, reason)
+activate SENDER
+
+SENDER -> STORE: find RTP by id
+activate STORE
+STORE --> SENDER: result (RTP record or not found)
+deactivate STORE
+
+alt **[NOT FOUND] RTP does not exist**
+  SENDER --[#red]> CLIENT: error response
+else **[FOUND] RTP exists**
+
+  SENDER -> SENDER: check RTP state allows cancellation
+
+  alt **[INVALID] State does not allow cancellation**
+    SENDER --[#red]> CLIENT: error response
+
+  else **[VALID] Cancellation allowed**
+
+    SENDER -> REGISTRY: resolve counterpart routing / tech info
+    activate REGISTRY
+    REGISTRY --> SENDER: routing details
+    deactivate REGISTRY
+
+    SENDER -> IDP: request auth token for counterpart call
+    activate IDP
+    IDP --> SENDER: auth token
+    deactivate IDP
+
+    SENDER -> SIDECAR: send cancellation
+    activate SIDECAR
+    SIDECAR -> EPC: forward cancellation message
+    activate EPC
+
+    alt **[VOID] No immediate decision (pending)**
+      EPC --> SIDECAR: void / empty response
+      deactivate EPC
+      SIDECAR --> SENDER: void / empty response
+      deactivate SIDECAR
+
+      SENDER -> STORE: update RTP state → **RFC_SENT**
+      activate STORE
+      STORE --> SENDER: confirm
+      deactivate STORE
+
+      SENDER --> CLIENT: **204 No Content**\n(pending, final outcome from callback)
+
+    else **[CNCL] Cancellation accepted**
+      EPC --> SIDECAR: accepted
+      deactivate EPC
+      SIDECAR --> SENDER: accepted
+      deactivate SIDECAR
+
+      SENDER -> STORE: update RTP state → **CANCELLED_ACCR**
+      activate STORE
+      STORE --> SENDER: confirm
+      deactivate STORE
+
+      SENDER --> CLIENT: **204 No Content**
+
+    else **[REJECTED] Cancellation rejected**
+      EPC --[#red]> SIDECAR: rejected
+      deactivate EPC
+      SIDECAR --[#red]> SENDER: rejected
+      deactivate SIDECAR
+
+      SENDER -> STORE: update RTP state → **CANCELLED_REJECTED**
+      activate STORE
+      STORE --> SENDER: confirm
+      deactivate STORE
+
+      SENDER --[#red]> CLIENT: error / rejected outcome
+
+    else **[ERROR] Sidecar / EPC Network unreachable or error**
+      EPC --[#red]> SIDECAR: error
+      deactivate EPC
+      SIDECAR --[#red]> SENDER: error
+      deactivate SIDECAR
+
+      SENDER -> STORE: update RTP state → **ERROR_CANCEL**
+      activate STORE
+      STORE --> SENDER: confirm
+      deactivate STORE
+
+      SENDER --[#red]> CLIENT: error response
+    end
+
+  end
+end
+
+deactivate SENDER
+
+@enduml
