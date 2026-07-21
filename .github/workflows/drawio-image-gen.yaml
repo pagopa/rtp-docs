@@ -16,10 +16,10 @@ jobs:
     steps:
       # Checkout the code repository
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3
 
       - name: Generate Drawio Images (C4)
-        uses: severgroup-tt/actions-drawio-cli@v1.0.0
+        uses: severgroup-tt/actions-drawio-cli@757714b9f66bbdf0b3d05d3e5941016ad4b27861 # v1.0.0
         with:
           format: png
           source: diagrams/c4
