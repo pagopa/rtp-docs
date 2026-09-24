@@ -1,0 +1,188 @@
+@startuml
+!theme materia
+title RTP Status Update Flow (sync) — POST /rtps/status-update
+actor "**Client**" as CLIENT
+participant "**MS-SENDER**\n(rtp-sender-v2)" as SENDER
+database "**RTPS**\n(MongoDB)" as MONGO
+database "**Service Registry**\n(Azure Blob Storage)" as SR
+participant "**OAuth2 Provider**" as OAUTH
+participant "**Sidecar**\n(sidecar-epc-proxy)" as SIDECAR
+participant "**EPC SP**" as EPC
+database "**Azure Data Explorer**\n(SRTP)" as ADX
+autonumber "<b>[0]"
+
+CLIENT -> SENDER: **POST** /rtps/status-update \n(bodyRequest: resourceId)
+activate SENDER
+
+SENDER -> MONGO: find Rtp by resourceId
+activate MONGO
+
+alt **RTP Found**
+  MONGO --> SENDER: Rtp
+  deactivate MONGO
+
+  SENDER -> SR: retrieve service provider data
+  activate SR
+
+  alt **SP Found**
+    SR --> SENDER: SP data
+    deactivate SR
+
+    opt **[OAUTH2] oauth2 field present in TSP config**
+      SENDER -> OAUTH: request OAuth2 token
+      activate OAUTH
+      OAUTH --> SENDER: access token
+      deactivate OAUTH
+    end
+
+    loop **retry up to 3 times (backoff) only if Sidecar is unreachable**
+      SENDER -> SIDECAR: **POST** /proxy/v1/status-update/{resourceId}
+      activate SIDECAR
+    end
+
+    SIDECAR -> EPC: POST /sepa-request-to-pay-requests/{id}/status-update
+    activate EPC
+
+    alt **[200 OK] Success Cases**
+      alt **200 with reason ALAC**
+        EPC --> SIDECAR: 200 (Rsn: ALAC)
+        deactivate EPC
+        SIDECAR --> SENDER: 200 (reasonCode: ALAC)
+        deactivate SIDECAR
+        SENDER -> MONGO: triggerUserAcceptRtp → **state**: **USER_ACCEPTED**
+        activate MONGO
+        MONGO --> SENDER: updated
+        deactivate MONGO
+        note right of SENDER: SENT | ACCEPTED → USER_ACCEPTED
+
+      else **[SUCCESS — FINAL] 200 with reason AEXR / ARFR / ARJR**
+        EPC --> SIDECAR: 200 (Rsn: AEXR | ARFR | ARJR)
+        deactivate EPC
+        SIDECAR --> SENDER: 200 (reasonCode)
+        deactivate SIDECAR
+        note right of SENDER
+          AEXR → **EXPIRED** (from SENT | ACCEPTED)
+          ARFR → **USER_REJECTED** (from SENT | ACCEPTED)
+          ARJR → **REJECTED** (from SENT)
+        end note
+
+        loop **retry on error (exhausted → error propagated)**
+          SENDER -> ADX: save RTP record (final **state**) + RTP events
+          activate ADX
+          ADX --> SENDER: confirm
+          deactivate ADX
+        end
+
+        loop **retry on error (exhausted → error propagated)**
+          SENDER -> MONGO: delete RTP record
+          activate MONGO
+          MONGO --> SENDER: confirm delete
+          deactivate MONGO
+        end
+
+      else **[SUCCESS — ERROR_SEND] 200 with reason IRNR**
+        EPC --> SIDECAR: 200 (Rsn: IRNR)
+        deactivate EPC
+        SIDECAR --> SENDER: 200 (reasonCode: IRNR)
+        deactivate SIDECAR
+        note right of SENDER: CREATED | SENT | ACCEPTED → **ERROR_SEND** (no ADX)
+
+        loop **retry on error (exhausted → error propagated)**
+          SENDER -> MONGO: delete RTP record
+          activate MONGO
+          MONGO --> SENDER: confirm delete
+          deactivate MONGO
+        end
+
+      else **[NO TRANSITION] 200 with reason REPR / RSPR, or no reason**
+        EPC --> SIDECAR: 200 (REPR | RSPR | no reason)
+        deactivate EPC
+        SIDECAR --> SENDER: 200
+        deactivate SIDECAR
+        note right of SENDER
+          State unchanged, nothing written to the DB.
+          No reason → outcome comes later through the async callback
+        end note
+
+      else **[ALREADY APPLIED] RTP already in the state implied by the reason**
+        EPC --> SIDECAR: 200 (reasonCode)
+        deactivate EPC
+        SIDECAR --> SENDER: 200 (reasonCode)
+        deactivate SIDECAR
+        note right of SENDER: idempotent no-op, nothing written to the DB
+      end
+
+      SENDER --> CLIENT: **200 OK** (resourceId, reason)
+      note right of SENDER
+        **200 OK Cases:**
+        - Reason ALAC (USER_ACCEPTED)
+        - Reason AEXR / ARFR / ARJR (Final states saved to ADX & deleted from MONGO)
+        - Reason IRNR (ERROR_SEND & deleted from MONGO)
+        - Reason REPR / RSPR or no reason (No transition / async callback)
+        - Already applied (Idempotent no-op)
+      end note
+
+    else **[422 Unprocessable Entity] Client Error Cases**
+      alt **[STATE CONFLICT] transition not allowed from current state**
+        EPC --> SIDECAR: 200 (reasonCode)
+        deactivate EPC
+        SIDECAR --> SENDER: 200 (reasonCode)
+        deactivate SIDECAR
+      else **[UNKNOWN REASON] unrecognised reason code**
+        EPC --> SIDECAR: 200 (unknown Rsn)
+        deactivate EPC
+        SIDECAR --[#red]> SENDER: 200 (unknown reasonCode)
+        deactivate SIDECAR
+      else **[NON-CONFORMANT] 4xx — missing StsRsnInf.Rsn / empty or unreadable body**
+        EPC --[#red]> SIDECAR: non-conformant response
+        deactivate EPC
+        SIDECAR --[#red]> SENDER: 4xx
+        deactivate SIDECAR
+      else **[REJECTED by SP] 4xx**
+        EPC --[#red]> SIDECAR: 4xx (errorBody)
+        deactivate EPC
+        SIDECAR --[#red]> SENDER: 4xx (error body)
+        deactivate SIDECAR
+      end
+
+      SENDER --[#red]> CLIENT: **422 Unprocessable Entity**
+      note right of SENDER
+        **422 Cases:**
+        - Invalid status transition
+        - Service Provider invalid response (Unknown reason / Non-conformant 4xx)
+        - Service Provider rejection
+      end note
+
+    else **[500 Internal Server Error] Server Error Cases**
+      alt **[SERVER ERROR] 5xx / Sidecar unreachable / Timeout**
+        EPC --[#red]> SIDECAR: 5xx
+        deactivate EPC
+        SIDECAR --[#red]> SENDER: 5xx / timeout
+        deactivate SIDECAR
+      end
+
+      SENDER --[#red]> CLIENT: **500 Internal Server Error**
+      note right of SENDER
+        **500 Cases:**
+        - Service Provider 5xx error
+        - Sidecar unreachable after retries / read timeout
+      end note
+    end
+
+  else **[SP NOT FOUND] Provider not in registry**
+    SR --[#red]> SENDER: not found
+    deactivate SR
+    SENDER --[#red]> CLIENT: **500 Internal Server Error**
+    note right of SENDER: Provider not found in Service Registry
+  end
+
+else **[NOT FOUND] RTP not in DB**
+  MONGO --[#red]> SENDER: empty
+  deactivate MONGO
+  SENDER --[#red]> CLIENT: **404 Not Found**
+
+else **[INVALID REQUEST] Malformed request**
+  SENDER --[#red]> CLIENT: **400 Bad Request**
+  deactivate SENDER
+end
+@enduml
