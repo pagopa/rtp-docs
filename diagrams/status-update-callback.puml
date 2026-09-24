@@ -13,7 +13,7 @@ note over EPC, SENDER
   **POST /rtps/status-update** got **200 without reason** (outcome deferred)
 end note
 
-EPC -> SENDER: **POST** /status-update \n(header: X-Client-Certificate-Serial,\nbody: status update response with reason)
+EPC -> SENDER: **POST** /status-update \n(header: X-Client-Certificate-Serial,\nbody: status update response)
 activate SENDER
 
 alt **Payload readable (Debtor SP id present)**
