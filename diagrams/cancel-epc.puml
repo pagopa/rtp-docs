@@ -44,12 +44,24 @@ else **[FOUND] RTP exists**
 
     SENDER -> SIDECAR: send cancellation
     activate SIDECAR
-    SIDECAR -> EPC: forward cancellation message
+    SIDECAR -> SIDECAR: sign camt.055 with certificate\n(EPC signature standard)
+
+    SIDECAR -> EPC: forward cancellation message → signed camt.055
     activate EPC
 
-    alt **[VOID] No immediate decision (pending)**
+    alt **[INVALID SIGNATURE] EPC SP response signature check failed**
+      EPC --> SIDECAR: response
+      deactivate EPC
+      SIDECAR -[#red]> SIDECAR: verify EPC SP signature → **FAILED**
+      SIDECAR --[#red]> SENDER: signature verification failed
+      deactivate SIDECAR
+
+      SENDER --[#red]> CLIENT: **422 Unprocessable Entity**
+
+    else **[VOID] No immediate decision (pending)**
       EPC --> SIDECAR: void / empty response
       deactivate EPC
+      SIDECAR -> SIDECAR: verify EPC SP signature → OK
       SIDECAR --> SENDER: void / empty response
       deactivate SIDECAR
 
@@ -63,6 +75,7 @@ else **[FOUND] RTP exists**
     else **[CNCL] Cancellation accepted**
       EPC --> SIDECAR: accepted
       deactivate EPC
+      SIDECAR -> SIDECAR: verify EPC SP signature → OK
       SIDECAR --> SENDER: accepted
       deactivate SIDECAR
 
@@ -76,6 +89,7 @@ else **[FOUND] RTP exists**
     else **[REJECTED] Cancellation rejected**
       EPC --[#red]> SIDECAR: rejected
       deactivate EPC
+      SIDECAR -> SIDECAR: verify EPC SP signature → OK
       SIDECAR --[#red]> SENDER: rejected
       deactivate SIDECAR
 
@@ -89,6 +103,7 @@ else **[FOUND] RTP exists**
     else **[ERROR] Sidecar / EPC Network unreachable or error**
       EPC --[#red]> SIDECAR: error
       deactivate EPC
+      SIDECAR -> SIDECAR: verify EPC SP signature → OK
       SIDECAR --[#red]> SENDER: error
       deactivate SIDECAR
 
