@@ -54,12 +54,24 @@ alt **[SUCCESS] Payer active — 200**
       Retry on 5xx only (no retry on 400 / 409)
     end note
 
-    SIDECAR -> EPC: POST /sepa-request-to-pay-requests/ → pain.013
+    SIDECAR -> SIDECAR: sign pain.013 with certificate\n(EPC signature standard)
+
+    SIDECAR -> EPC: POST /sepa-request-to-pay-requests/ → signed pain.013
     activate EPC
 
-    alt **[SUCCESS] 201 Created with body (TxSts: ACTC)**
+    alt **[INVALID SIGNATURE] EPC SP response signature check failed**
+      EPC --> SIDECAR: response
+      deactivate EPC
+      SIDECAR -[#red]> SIDECAR: verify EPC SP signature → **FAILED**
+      SIDECAR --[#red]> SENDER: signature verification failed
+      deactivate SIDECAR
+
+      SENDER --[#red]> CLIENT: **422 Unprocessable Entity**
+
+    else **[SUCCESS] 201 Created with body (TxSts: ACTC)**
       EPC --> SIDECAR: 201 + body (TxSts: ACTC)
       deactivate EPC
+      SIDECAR -> SIDECAR: verify EPC SP signature → OK
       SIDECAR --> SENDER: 201 + body (TxStatus: ACTC)
       deactivate SIDECAR
 
@@ -78,6 +90,7 @@ alt **[SUCCESS] Payer active — 200**
     else **[PARTIAL] 201 Created with empty body**
       EPC --> SIDECAR: 201 (no body)
       deactivate EPC
+      SIDECAR -> SIDECAR: verify EPC SP signature → OK
       SIDECAR --> SENDER: 201 (no body)
       deactivate SIDECAR
 
@@ -92,6 +105,7 @@ alt **[SUCCESS] Payer active — 200**
     else **[REJECTED by SP] 4xx with body (TxSts: RJCT)**
       EPC --[#red]> SIDECAR: 4xx + body (TxSts: RJCT)
       deactivate EPC
+      SIDECAR -> SIDECAR: verify EPC SP signature → OK
       SIDECAR --[#red]> SENDER: 4xx + body (txStatus: RJCT)
       deactivate SIDECAR
 
@@ -129,6 +143,7 @@ alt **[SUCCESS] Payer active — 200**
     else **[CLIENT ERROR] 4xx without RJCT**
       EPC --[#red]> SIDECAR: 4xx (no RJCT)
       deactivate EPC
+      SIDECAR -> SIDECAR: verify EPC SP signature → OK
       SIDECAR --[#red]> SENDER: 4xx
       deactivate SIDECAR
 
@@ -162,6 +177,7 @@ alt **[SUCCESS] Payer active — 200**
     else **[SERVER ERROR] 5xx**
       EPC --[#red]> SIDECAR: 5xx
       deactivate EPC
+      SIDECAR -> SIDECAR: verify EPC SP signature → OK
       SIDECAR --[#red]> SENDER: 5xx
       deactivate SIDECAR
 
