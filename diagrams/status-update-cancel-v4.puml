@@ -1,0 +1,182 @@
+@startuml
+!theme materia
+title RTP Status Update Cancel Flow (sync) — POST /rtps/status-update/cancel
+actor "**Client**" as CLIENT
+participant "**MS-SENDER**\n(rtp-sender-v2)" as SENDER
+database "**RTPS**\n(MongoDB)" as MONGO
+database "**Service Registry**\n(Azure Blob Storage)" as SR
+participant "**OAuth2 Provider**" as OAUTH
+participant "**Sidecar**\n(sidecar-epc-proxy)" as SIDECAR
+participant "**EPC SP**" as EPC
+database "**Azure Data Explorer**\n(SRTP)" as ADX
+autonumber "<b>[0]"
+
+CLIENT -> SENDER: **POST** /rtps/status-update/cancel \n(bodyRequest: resourceId)
+activate SENDER
+
+SENDER -> MONGO: find Rtp by resourceId
+activate MONGO
+
+alt **RTP Found**
+  MONGO --> SENDER: Rtp
+  deactivate MONGO
+
+  alt **RTP in state RFC_SENT**
+
+    SENDER -> SR: retrieve service provider data
+    activate SR
+
+    alt **SP Found**
+      SR --> SENDER: SP data
+      deactivate SR
+
+      opt **[OAUTH2] oauth2 field present in TSP config**
+        SENDER -> OAUTH: request OAuth2 token
+        activate OAUTH
+        OAUTH --> SENDER: access token
+        deactivate OAUTH
+      end
+
+      loop **retry up to 3 times (backoff) only if Sidecar is unreachable**
+        SENDER -> SIDECAR: **POST** /proxy/v1/status-update/cancel/{resourceId}
+        activate SIDECAR
+      end
+
+      SIDECAR -> EPC: POST /sepa-request-to-pay-requests/{id}/cancellation-requests/{id}/status-update
+      activate EPC
+      note right of SIDECAR
+        The RTP resourceId is used for both path params:
+        the RfC is identified by the client-assigned RTP id
+      end note
+
+      alt **[200 OK] Success Cases**
+        alt **[SUCCESS — FINAL] 200 with reason AEXR / RCAR**
+          EPC --> SIDECAR: 200 (Rsn: AEXR | RCAR)
+          deactivate EPC
+          SIDECAR --> SENDER: 200 (reasonCode)
+          deactivate SIDECAR
+          note right of SENDER
+            AEXR → **EXPIRED** (from RFC_SENT)
+            RCAR → **CANCELLED_REJECTED** (from RFC_SENT)
+          end note
+
+          loop **retry on error (exhausted → error propagated)**
+            SENDER -> ADX: save RTP record (final **state**) + RTP events
+            activate ADX
+            ADX --> SENDER: confirm
+            deactivate ADX
+          end
+
+          loop **retry on error (exhausted → error propagated)**
+            SENDER -> MONGO: delete RTP record
+            activate MONGO
+            MONGO --> SENDER: confirm delete
+            deactivate MONGO
+          end
+
+        else **[RFC NOT RECEIVED] 200 with reason RCNR**
+          EPC --> SIDECAR: 200 (Rsn: RCNR)
+          deactivate EPC
+          SIDECAR --> SENDER: 200 (reasonCode: RCNR)
+          deactivate SIDECAR
+          SENDER -> MONGO: triggerRfcNotReceived → **state** unchanged: **RFC_SENT**
+          activate MONGO
+          MONGO --> SENDER: updated
+          deactivate MONGO
+          note right of SENDER
+            RFC_SENT → RFC_SENT
+            RFC_NOT_RECEIVED event recorded in the RTP history
+          end note
+
+        else **[NO TRANSITION] 200 with reason RCPR, or no reason**
+          EPC --> SIDECAR: 200 (RCPR | no reason)
+          deactivate EPC
+          SIDECAR --> SENDER: 200
+          deactivate SIDECAR
+          note right of SENDER
+            State unchanged, nothing written to the DB.
+            RCPR → RfC already received and processed by the SP
+            No reason (empty body or {}) → outcome comes later
+            through the async callback
+          end note
+        end
+
+        SENDER --> CLIENT: **200 OK** (resourceId, reason)
+        note right of SENDER
+          **200 OK Cases:**
+          - Reason AEXR / RCAR (Final states saved to ADX & deleted from MONGO)
+          - Reason RCNR (RFC_SENT kept, RFC_NOT_RECEIVED event saved to MONGO)
+          - Reason RCPR or no reason (No transition / async callback)
+        end note
+
+      else **[422 Unprocessable Entity] Client Error Cases**
+        alt **[UNKNOWN REASON] unrecognised reason code**
+          EPC --> SIDECAR: 200 (unknown Rsn)
+          deactivate EPC
+          SIDECAR --[#red]> SENDER: 200 (unknown reasonCode)
+          deactivate SIDECAR
+        else **[NON-CONFORMANT] 200 with a body missing CxlStsRsnInf.Rsn**
+          EPC --[#red]> SIDECAR: 200 (non-conformant response)
+          deactivate EPC
+          SIDECAR --[#red]> SENDER: 422
+          deactivate SIDECAR
+        else **[NON-CONFORMANT] 4xx with empty or unreadable body**
+          EPC --[#red]> SIDECAR: 4xx
+          deactivate EPC
+          SIDECAR --[#red]> SENDER: 4xx
+          deactivate SIDECAR
+        else **[REJECTED by SP] 4xx**
+          EPC --[#red]> SIDECAR: 4xx (errorBody)
+          deactivate EPC
+          SIDECAR --[#red]> SENDER: 4xx (error body)
+          deactivate SIDECAR
+        end
+
+        SENDER --[#red]> CLIENT: **422 Unprocessable Entity**
+        note right of SENDER
+          **422 Cases (RTP left as-is):**
+          - Service Provider invalid response (Unknown reason / Non-conformant response)
+          - Service Provider rejection
+        end note
+
+      else **[500 Internal Server Error] Server Error Cases**
+        alt **[SERVER ERROR] 5xx / Sidecar unreachable / EPC timeout**
+          EPC --[#red]> SIDECAR: 5xx
+          deactivate EPC
+          SIDECAR --[#red]> SENDER: 5xx
+          deactivate SIDECAR
+        end
+
+        SENDER --[#red]> CLIENT: **500 Internal Server Error**
+        note right of SENDER
+          **500 Cases (RTP left as-is):**
+          - Service Provider 5xx error / timeout
+          - Sidecar unreachable after retries
+        end note
+      end
+
+    else **[SP NOT FOUND] Provider not in registry**
+      SR --[#red]> SENDER: not found
+      deactivate SR
+      SENDER --[#red]> CLIENT: **500 Internal Server Error**
+      note right of SENDER: Provider not found in Service Registry
+    end
+
+  else **[INVALID STATE] RTP not in state RFC_SENT**
+    SENDER --[#red]> CLIENT: **422 Unprocessable Entity**
+    note right of SENDER
+      Invalid status transition: no RfC pending for this RTP.
+      No call is made to the Service Provider
+    end note
+  end
+
+else **[NOT FOUND] RTP not in DB**
+  MONGO --[#red]> SENDER: empty
+  deactivate MONGO
+  SENDER --[#red]> CLIENT: **404 Not Found**
+
+else **[INVALID REQUEST] Malformed request**
+  SENDER --[#red]> CLIENT: **400 Bad Request**
+  deactivate SENDER
+end
+@enduml
