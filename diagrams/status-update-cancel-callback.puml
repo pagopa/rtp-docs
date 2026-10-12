@@ -1,0 +1,121 @@
+@startuml
+!theme materia
+title RfC Status Update Flow (async callback) — POST /status-update-cancel
+participant "**EPC SP**\n(Payer's SRTP-SP)" as EPC
+participant "**MS-SENDER**\n(rtp-sender-v2)" as SENDER
+database "**Service Registry**\n(Azure Blob Storage)" as SR
+database "**RTPS**\n(MongoDB)" as MONGO
+database "**Azure Data Explorer**\n(SRTP)" as ADX
+autonumber "<b>[0]"
+
+note over EPC, SENDER
+  Callback sent by the Payer's SRTP-SP when the sync
+  **POST /rtps/status-update/cancel** got **200 without reason** (outcome deferred)
+end note
+
+EPC -> SENDER: **POST** /status-update-cancel \n(header: X-Client-Certificate-Serial,\nbody: RfC status update response — DS-16 RFC)
+activate SENDER
+
+alt **Payload readable (Debtor SP id present in Assgnmt.Assgne)**
+
+  SENDER -> SR: retrieve Debtor SP data
+  activate SR
+
+  alt **SP Found**
+    SR --> SENDER: SP data
+    deactivate SR
+
+    alt **Certificate serial matches the registry**
+
+      SENDER -> MONGO: find Rtp by resourceId (original message id)
+      activate MONGO
+
+      alt **RTP Found**
+        MONGO --> SENDER: Rtp
+        deactivate MONGO
+
+        alt **[200 OK] Success Cases**
+          alt **[SUCCESS — FINAL] reason AEXR / RCAR**
+            note right of SENDER
+              AEXR → **EXPIRED** (from SENT | ACCEPTED | RFC_SENT)
+              RCAR → **CANCELLED_REJECTED** (from RFC_SENT | CANCELLED)
+            end note
+
+            loop **retry on error (exhausted → error propagated)**
+              SENDER -> ADX: save RTP record (final **state**) + RTP events
+              activate ADX
+              ADX --> SENDER: confirm
+              deactivate ADX
+            end
+
+            loop **retry on error (exhausted → error propagated)**
+              SENDER -> MONGO: delete RTP record
+              activate MONGO
+              MONGO --> SENDER: confirm delete
+              deactivate MONGO
+            end
+
+          else **[SUCCESS — RFC NOT RECEIVED] reason RCNR**
+            SENDER -> MONGO: update Rtp: add **RFC_NOT_RECEIVED** event
+            activate MONGO
+            MONGO --> SENDER: updated
+            deactivate MONGO
+            note right of SENDER: RFC_SENT → RFC_SENT (state unchanged, event recorded)
+
+          else **[NO TRANSITION] reason RCPR**
+            note right of SENDER: RfC already received and processed:\nstate unchanged, nothing written to the DB
+
+          else **[ALREADY APPLIED] RTP already in the state implied by AEXR / RCAR**
+            note right of SENDER: idempotent no-op, nothing written to the DB
+          end
+
+          SENDER --> EPC: **200 OK** (empty body)
+          note right of SENDER
+            **200 OK Cases:**
+            - Reason AEXR / RCAR (Final states saved to ADX & deleted from MONGO)
+            - Reason RCNR (RFC_NOT_RECEIVED event recorded, state stays RFC_SENT)
+            - Reason RCPR (No transition)
+            - Already applied (Idempotent no-op)
+          end note
+
+        else **[400 Bad Request] Callback Content Error Cases**
+          note right of SENDER
+            **400 Cases:**
+            - Invalid status transition from current state
+              (e.g. RCNR on an RTP not in RFC_SENT)
+            - Unknown reason code
+            - Missing reason code
+          end note
+          SENDER --[#red]> EPC: **400 Bad Request** (empty body)
+
+        else **[500 Internal Server Error] Persistence failure**
+          note right of SENDER
+            **500 Cases:**
+            - MongoDB update / delete failed after retries
+            - ADX save failed after retries
+          end note
+          SENDER --[#red]> EPC: **500 Internal Server Error**
+        end
+
+      else **[RTP NOT FOUND] RTP not in DB**
+        MONGO --[#red]> SENDER: empty
+        deactivate MONGO
+        SENDER --[#red]> EPC: **400 Bad Request** (empty body)
+        note right of SENDER: Unknown resourceId, or RTP already finalized & deleted
+      end
+
+    else **[FORBIDDEN] Certificate serial mismatch**
+      SENDER --[#red]> EPC: **403 Forbidden** (empty body)
+    end
+
+  else **[SP NOT FOUND] Debtor SP not in registry**
+    SR --[#red]> SENDER: not found
+    deactivate SR
+    SENDER --[#red]> EPC: **400 Bad Request** (empty body)
+  end
+
+else **[INVALID REQUEST] Empty body / missing Debtor SP id / missing original message id**
+  SENDER --[#red]> EPC: **400 Bad Request** (empty body)
+  deactivate SENDER
+end
+@enduml
