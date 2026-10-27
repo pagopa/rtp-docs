@@ -1,0 +1,61 @@
+@startuml
+!theme materia
+
+title SelfCare Webhook Service Providers Flow — POST /selfcare/webhook
+
+participant "SELFCARE" as SC
+participant "RTP-REGISTRY" as REG
+database "COSMOS-DB" as DB
+
+autonumber
+
+SC -> REG: POST /selfcare/webhook\n(Body: SC-Delegations notification)
+note right of REG
+  Authentication (API-Key & JWT)
+  is validated upstream by APIM policy
+end note
+activate REG
+
+REG -> DB: find TSP by id
+activate DB
+
+alt TSP found
+    DB --> REG: TSP Document
+    deactivate DB
+
+    alt status == "ACTIVE" and eventType == "ADD"
+        REG -> DB: add service_provider to service_providers array
+        activate DB
+        DB --> REG: updated
+        deactivate DB
+        REG --> SC: 200 OK
+
+    else status == "DELETED" and eventType == "UPDATE"
+        alt SP found in service_providers
+            REG -> DB: remove service_provider from service_providers array
+            activate DB
+            DB --> REG: updated
+            deactivate DB
+            REG --> SC: 200 OK
+        else SP not found
+            REG --> SC: 422 Unprocessable Entity
+            note right of REG
+              SP not present in TSP
+            end note
+        end
+    end
+
+else TSP not found
+    DB --> REG: empty
+    deactivate DB
+    REG --> SC: 422 Unprocessable Entity
+    note right of REG
+      TSP must be configured
+      manually first
+    end note
+
+end
+
+deactivate REG
+
+@enduml
