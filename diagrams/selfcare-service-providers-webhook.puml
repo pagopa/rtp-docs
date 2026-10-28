@@ -68,9 +68,7 @@ else Invalid or missing API-Key / JWT
 
 else Insufficient permissions
     REG --> SC: 403 Forbidden
-
+    deactivate REG
 end
-
-deactivate REG
 
 @enduml
