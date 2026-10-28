@@ -1,7 +1,7 @@
 @startuml
 !theme materia
 
-title SelfCare Webhook Service Providers Flow — POST /selfcare/webhook
+title SelfCare Webhook Service Providers Flow
 
 participant "SELFCARE" as SC
 participant "RTP-REGISTRY" as REG
