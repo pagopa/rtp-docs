@@ -5,7 +5,7 @@ title SelfCare Webhook Service Providers Flow — POST /selfcare/webhook
 
 participant "SELFCARE" as SC
 participant "RTP-REGISTRY" as REG
-database "COSMOS-DB" as DB
+database "Registry-DB" as DB
 
 autonumber
 
@@ -65,9 +65,6 @@ alt Valid credentials (API-Key & JWT)
 
 else Invalid or missing API-Key / JWT
     REG --> SC: 401 Unauthorized
-
-else Insufficient permissions
-    REG --> SC: 403 Forbidden
     deactivate REG
 end
 
