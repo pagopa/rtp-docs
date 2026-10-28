@@ -63,17 +63,10 @@ else TSP not found
 
 else Invalid or missing API-Key / JWT
     REG --> SC: 401 Unauthorized
-    note right of REG
-      Failed upstream check
-      (API-Key, JWT, or notification_id)
-    end note
 
 else Insufficient permissions
     REG --> SC: 403 Forbidden
     deactivate REG
-    note right of REG
-      Missing required role or permissions
-    end note
 
 end
 
