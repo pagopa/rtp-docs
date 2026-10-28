@@ -24,7 +24,7 @@ alt TSP found
     deactivate DB
 
     alt status == "ACTIVE" and eventType == "ADD"
-        REG -> DB: add service_provider to service_providers array
+        REG -> DB: add service_provider to service_providers collection
         activate DB
         DB --> REG: updated
         deactivate DB
@@ -32,30 +32,36 @@ alt TSP found
 
     else status == "DELETED" and eventType == "UPDATE"
         alt SP found in service_providers
-            REG -> DB: remove service_provider from service_providers array
+            REG -> DB: remove service_provider from service_providers collection
             activate DB
             DB --> REG: updated
             deactivate DB
             REG --> SC: 200 OK
         else SP not found
-            REG --> SC: 422 Unprocessable Entity
+            REG --> SC: 404 Not Found
             note right of REG
               SP not present in TSP
             end note
         end
+
+    else unexpected status or eventType
+        REG --> SC: 400 Bad Request
+        note right of REG
+          Unexpected status
+          or eventType
+        end note
     end
 
 else TSP not found
     DB --> REG: empty
     deactivate DB
-    REG --> SC: 422 Unprocessable Entity
+    REG --> SC: 404 Not Found
+    deactivate REG
     note right of REG
       TSP must be configured
       manually first
     end note
 
 end
-
-deactivate REG
 
 @enduml
