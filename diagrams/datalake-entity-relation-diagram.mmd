@@ -1,0 +1,75 @@
+---
+config:
+  theme: default
+---
+erDiagram
+    Activation ||..|| DeletedActivation : archiviazione
+    Activation ||..o{ RTP : genera
+    RTP ||--|{ Event : contiene_eventi
+
+    TechnicalServiceProvider ||--o{ ServiceProvider : comprende
+    TechnicalServiceProvider ||--o| Oauth2Configuration : ha_configurazione
+    ServiceProvider ||--o{ Activation : servizio_del_debitore
+    ServiceProvider ||--o{ DeletedActivation : servizio_del_debitore
+    ServiceProvider ||--o{ RTP : servizio_del_debitore
+
+    TechnicalServiceProvider {
+        ObjectId _id PK
+        string tspId UK
+        string name
+        string serviceEndpoint
+        string takeoverEndpoint
+        string certificateSerialNumber
+        boolean mtlsEnabled
+        boolean qsealcEnabled
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    Oauth2Configuration {
+        string tokenEndpoint
+        string method
+        string credentialsTransportMode
+        string clientId
+        string clientSecretKvUrl
+        string clientSecretEnvVar
+        string scope
+        boolean mtlsEnabled
+    }
+
+    ServiceProvider {
+        string id UK
+        string name
+        string tspId FK
+        string pspTaxCode
+        timestamp onboardedAt
+    }
+
+    Activation {
+        binary id PK
+        string fiscalCode
+        string serviceProviderDebtor FK
+        date effectiveActivationDate
+    }
+
+    DeletedActivation {
+        binary id PK
+        string fiscalCode
+        string serviceProviderDebtor FK
+        date deactivationDate
+    }
+
+    RTP {
+        binary id PK
+        string payerId FK
+        string serviceProviderDebtor FK
+        string amount
+        string status
+    }
+
+    Event {
+        binary RTP_id PK, FK
+        date timestamp PK
+        string triggerEvent
+        string precStatus
+    }
