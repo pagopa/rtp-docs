@@ -1,0 +1,66 @@
+@startuml
+!theme materia
+
+title Get Service Providers Flow
+
+actor "Client" as CLIENT
+participant "RTP-REGISTRY" as REG
+database "Database v1" as DB
+database "Database v2" as DB_V2
+
+autonumber
+
+CLIENT -> REG: GET /registry\n(Headers: RequestId, Version)
+activate REG
+note right of REG
+  Authentication & Authorization (OAuth2)
+  Required roles:
+  - read_rtp_service_providers OR
+  - read_service_registry
+end note
+
+alt Valid request
+
+    alt V1
+        REG -> DB: find all Technical Service Providers
+        activate DB
+        DB --> REG: TSP documents
+        deactivate DB
+
+
+    else V2
+        REG -> DB_V2: find all Technical Service Providers
+        activate DB_V2
+        DB_V2 --> REG: TSP documents
+        deactivate DB_V2
+        note right of REG
+          Response includes
+          qsealcEnabled field
+        end note
+    end
+
+    REG --> CLIENT: 200 OK\n(Body: ServiceProvidersDto)
+
+else Missing or invalid header RequestId
+    REG --> CLIENT: 400 Bad Request
+
+else Missing or invalid header Version
+    REG --> CLIENT: 404 Resource Not Found
+
+else Invalid or expired security token
+    REG --> CLIENT: 401 Unauthorized
+
+else Insufficient permissions
+    REG --> CLIENT: 403 Forbidden
+
+else Rate limit exceeded
+    REG --> CLIENT: 429 Too Many Requests
+
+else Unexpected server error
+    REG --> CLIENT: 500 Internal Server Error
+
+end
+
+deactivate REG
+
+@enduml
