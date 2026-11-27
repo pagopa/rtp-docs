@@ -1,0 +1,132 @@
+@startuml
+!theme materia
+title SRTP Failed GPD Messages Recovery — ClouDO runbook srtp-recover-gpd-messages
+actor "**Operator**\n(ClouDO UI)" as OP
+participant "**ClouDO**\n(generic worker)" as CLOUDO
+participant "**Runbook**\n(recover_gpd_messages.py)" as RB
+database "**SRTP Key Vault**\n(cstar-itn-srtp-kv)" as KV
+database "**Cosmos DB**\n(rtp_failed_messages collection)" as COSMOS
+participant "**pagoPA eCommerce**\n(payment-requests-service)" as ECOM
+participant "**SRTP Auth**\n(Keycloak realm srtp)" as AUTH
+participant "**RTP API**\n(POST /rtp/gpd/message)" as RTP
+autonumber "<b>[0]"
+
+note over OP, CLOUDO
+  Runbook **srtp-recover-gpd-messages** (partition **srtp**, require_approval: **true**)
+end note
+
+OP -> CLOUDO: run runbook
+activate CLOUDO
+CLOUDO -> CLOUDO: approval required
+note right of CLOUDO: approver confirms the execution
+
+CLOUDO -> RB: execute **srtp/recover_gpd_messages.py**
+activate RB
+
+RB -> KV: read secrets (ClouDO managed identity)
+activate KV
+
+alt **[KV ERROR] Secrets not readable**
+  KV --[#red]> RB: error
+  RB --[#red]> CLOUDO: **exit 1** (Cannot load secrets)
+else **Secrets loaded**
+  KV --> RB: secrets
+  deactivate KV
+
+  RB -> COSMOS: find({}) limit N
+  activate COSMOS
+  COSMOS --> RB: failed documents
+  deactivate COSMOS
+  note right of RB: sorted by message.nav, message.timestamp, _id
+
+  alt **[NO DOCUMENTS] Collection empty**
+    note right of RB: verification and RTP send not executed
+    RB --> CLOUDO: **exit 0** (nothing to do)
+
+  else **Documents found**
+
+    loop **for each batch**
+      loop **for each document**
+
+        alt **[SEND — NO VERIFICATION] operation DELETE / UPDATE with status PAID**
+          note right of RB: payment verification skipped
+
+        else **[LEAVE] nav or ec_tax_code missing**
+          note right of RB: document left in Cosmos DB for a later run
+
+        else **Payment verification required**
+          RB -> ECOM: **GET** /payment-requests/{ec_tax_code}{nav}
+          activate ECOM
+          note right of RB: PAYABLE / NOT_PAYABLE results cached per (nav, ec_tax_code) for the run
+
+          alt **[200 OK] PAYABLE**
+            ECOM --> RB: 200
+            note right of RB: decision **SEND**
+
+          else **[NOT_PAYABLE] 409 DUPLICATED / EXPIRED / CANCELED — 404 PAYMENT_UNKNOWN**
+            ECOM --> RB: 409 / 404 + faultCodeCategory
+            RB -> COSMOS: delete document (**DISCARD**, not sent to RTP)
+            activate COSMOS
+            COSMOS --> RB: deleted
+            deactivate COSMOS
+
+          else **[401 / 403] Subscription key rejected**
+            ECOM --[#red]> RB: 401 / 403
+            RB --[#red]> CLOUDO: **exit 1** (Payment verification aborted — whole run stopped)
+
+          else **[UNCONFIRMED] other status / timeout / network error**
+            ECOM --[#red]> RB: error
+            deactivate ECOM
+            note right of RB: decision **LEAVE**: document kept in Cosmos DB, not cached
+          end
+        end
+
+        opt **decision SEND**
+          RB -> AUTH: **POST** token (client_credentials)
+          activate AUTH
+
+          AUTH --> RB: access_token
+          deactivate AUTH
+
+          RB -> RTP: **POST** /rtp/gpd/message
+          activate RTP
+
+          alt **[FINAL RESPONSE] 2xx / any 4xx except 401, 403, 429**
+            RTP --> RB: response
+            RB -> COSMOS: delete document
+            activate COSMOS
+            COSMOS --> RB: deleted
+            deactivate COSMOS
+
+          else **[RETRYABLE] 5xx / 429 / 401 / 403**
+            RTP --[#red]> RB: error
+            deactivate RTP
+            note right of RB: document kept in Cosmos DB for a later run
+          end
+        end
+
+        note right of RB
+          **Any other error on a document** (token request failed,
+          RTP unreachable, malformed document): logged,
+          document kept in Cosmos DB, processing continues
+        end note
+
+      end
+    end
+
+    RB --> CLOUDO: **exit 0** + summary
+    note right of RB
+      **Summary:**
+      - Sent attempts
+      - Deleted after send
+      - Discarded (not payable)
+      - Left for retry
+      - Remaining in Cosmos DB
+    end note
+  end
+end
+
+deactivate RB
+CLOUDO --> OP: execution log (stdout)
+deactivate CLOUDO
+@enduml
